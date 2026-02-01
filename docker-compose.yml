@@ -1,0 +1,90 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: picshare
+      POSTGRES_PASSWORD: picshare
+      POSTGRES_DB: picshare
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U picshare -d picshare"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: s3,sqs
+      AWS_DEFAULT_REGION: us-east-1
+      DEBUG: "0"
+    command: ["sh", "-c", "chmod +x /etc/localstack/init/ready.d/01-setup.sh && localstack start"]
+    ports:
+      - "4566:4566"
+    volumes:
+      - "./docker/localstack/init:/etc/localstack/init/ready.d"
+      - "./docker/seed/images:/seed-images"
+    healthcheck:
+      test: ["CMD", "curl", "-s", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  migrate:
+    image: postgres:16
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: picshare
+    volumes:
+      - "./migrations:/migrations"
+      - "./docker/migrate.sh:/migrate.sh"
+    entrypoint: ["/bin/bash", "/migrate.sh"]
+    restart: "no"
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      HTTP_ADDR: 0.0.0.0:8080
+      DATABASE_URL: postgres://picshare:picshare@db:5432/picshare
+      REDIS_URL: redis://redis:6379/
+      S3_ENDPOINT: http://localstack:4566
+      S3_REGION: us-east-1
+      S3_BUCKET: picshare-media
+      QUEUE_ENDPOINT: http://localstack:4566
+      QUEUE_REGION: us-east-1
+      QUEUE_NAME: picshare-media-jobs
+      AUTH_TOKEN_TTL_HOURS: 168
+      ACCESS_TTL_MINUTES: 15
+      REFRESH_TTL_DAYS: 30
+      UPLOAD_URL_TTL_SECONDS: 900
+      UPLOAD_MAX_BYTES: 10485760
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      PASETO_ACCESS_KEY: ${PASETO_ACCESS_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      PASETO_REFRESH_KEY: ${PASETO_REFRESH_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "8080:8080"
