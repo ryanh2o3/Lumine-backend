@@ -56,6 +56,20 @@ impl AppError {
             message: message.into(),
         }
     }
+
+    pub fn rate_limited(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            message: message.into(),
+        }
+    }
+
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            message: message.into(),
+        }
+    }
 }
 
 impl IntoResponse for AppError {

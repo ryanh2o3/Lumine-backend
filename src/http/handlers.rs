@@ -1249,3 +1249,315 @@ pub async fn search_posts(
     }))
 }
 
+
+// ============================================================================
+// Safety & Anti-Abuse Handlers
+// ============================================================================
+
+// Trust Score Handlers
+
+#[derive(Serialize)]
+pub struct TrustScoreResponse {
+    pub user_id: String,
+    pub trust_level: i32,
+    pub trust_level_name: String,
+    pub trust_points: i32,
+    pub account_age_days: i32,
+    pub posts_count: i32,
+    pub followers_count: i32,
+    pub strikes: i32,
+    pub is_banned: bool,
+}
+
+pub async fn get_trust_score(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<TrustScoreResponse>, AppError> {
+    let trust_service = crate::app::trust::TrustService::new(state.db.clone());
+    let score = trust_service
+        .get_trust_score(auth.user_id)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, user_id = %auth.user_id, "failed to fetch trust score");
+            AppError::internal("failed to fetch trust score")
+        })?
+        .ok_or_else(|| AppError::not_found("trust score not found"))?;
+
+    let trust_level_name = match score.trust_level {
+        crate::config::rate_limits::TrustLevel::New => "New",
+        crate::config::rate_limits::TrustLevel::Basic => "Basic",
+        crate::config::rate_limits::TrustLevel::Trusted => "Trusted",
+        crate::config::rate_limits::TrustLevel::Verified => "Verified",
+    };
+
+    Ok(Json(TrustScoreResponse {
+        user_id: score.user_id.to_string(),
+        trust_level: score.trust_level as i32,
+        trust_level_name: trust_level_name.to_string(),
+        trust_points: score.trust_points,
+        account_age_days: score.account_age_days,
+        posts_count: score.posts_count,
+        followers_count: score.followers_count,
+        strikes: score.strikes,
+        is_banned: score.banned_until.map(|until| until > time::OffsetDateTime::now_utc()).unwrap_or(false),
+    }))
+}
+
+// Rate Limit Handlers
+
+#[derive(Serialize)]
+pub struct RateLimitsResponse {
+    pub trust_level: String,
+    pub posts_per_hour: u32,
+    pub posts_per_day: u32,
+    pub follows_per_hour: u32,
+    pub follows_per_day: u32,
+    pub likes_per_hour: u32,
+    pub comments_per_hour: u32,
+    pub remaining: RemainingQuotas,
+}
+
+#[derive(Serialize)]
+pub struct RemainingQuotas {
+    pub posts: u32,
+    pub follows: u32,
+    pub likes: u32,
+    pub comments: u32,
+}
+
+pub async fn get_rate_limits(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<RateLimitsResponse>, AppError> {
+    let trust_service = crate::app::trust::TrustService::new(state.db.clone());
+    let score = trust_service
+        .get_trust_score(auth.user_id)
+        .await
+        .map_err(|_| AppError::internal("failed to fetch trust score"))?
+        .ok_or_else(|| AppError::not_found("trust score not found"))?;
+
+    let trust_level = score.trust_level;
+    let limits = crate::config::rate_limits::RateLimits::for_trust_level(trust_level);
+
+    let rate_limiter = crate::app::rate_limiter::RateLimiter::new(state.cache.clone());
+
+    let remaining_posts = rate_limiter
+        .get_remaining(auth.user_id, "post", trust_level)
+        .await
+        .unwrap_or(0);
+    let remaining_follows = rate_limiter
+        .get_remaining(auth.user_id, "follow", trust_level)
+        .await
+        .unwrap_or(0);
+    let remaining_likes = rate_limiter
+        .get_remaining(auth.user_id, "like", trust_level)
+        .await
+        .unwrap_or(0);
+    let remaining_comments = rate_limiter
+        .get_remaining(auth.user_id, "comment", trust_level)
+        .await
+        .unwrap_or(0);
+
+    Ok(Json(RateLimitsResponse {
+        trust_level: format!("{:?}", trust_level),
+        posts_per_hour: limits.posts_per_hour,
+        posts_per_day: limits.posts_per_day,
+        follows_per_hour: limits.follows_per_hour,
+        follows_per_day: limits.follows_per_day,
+        likes_per_hour: limits.likes_per_hour,
+        comments_per_hour: limits.comments_per_hour,
+        remaining: RemainingQuotas {
+            posts: remaining_posts,
+            follows: remaining_follows,
+            likes: remaining_likes,
+            comments: remaining_comments,
+        },
+    }))
+}
+
+// Device Fingerprint Handlers
+
+#[derive(Deserialize)]
+pub struct RegisterFingerprintRequest {
+    pub fingerprint: String,
+}
+
+pub async fn register_device_fingerprint(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<RegisterFingerprintRequest>,
+) -> Result<StatusCode, AppError> {
+    let service = crate::app::fingerprint::FingerprintService::new(state.db.clone());
+
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let fingerprint_hash = crate::app::fingerprint::FingerprintService::hash_fingerprint(&payload.fingerprint);
+
+    // Check if device is blocked
+    let (risk_score, is_blocked) = service
+        .check_device_risk(&fingerprint_hash)
+        .await
+        .map_err(|_| AppError::internal("failed to check device risk"))?;
+
+    if is_blocked {
+        return Err(AppError::forbidden("This device has been blocked"));
+    }
+
+    if risk_score > 80 {
+        let user_id_log = match &auth {
+            Some(auth_user) => format!("user_id={}", auth_user.user_id),
+            None => "unauthenticated".to_string(),
+        };
+        tracing::warn!(
+            user_id = user_id_log,
+            fingerprint_hash = &fingerprint_hash[..8],
+            risk_score = risk_score,
+            "High-risk device detected"
+        );
+    }
+
+    // Register fingerprint - user_id is optional for unauthenticated registration
+    let user_id = auth.map(|a| a.user_id);
+    service
+        .register_fingerprint(fingerprint_hash, user_id, user_agent)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, "failed to register fingerprint");
+            AppError::internal("failed to register device")
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+pub struct DeviceResponse {
+    pub fingerprint_hash: String,
+    pub account_count: i32,
+    pub risk_score: i32,
+    pub is_blocked: bool,
+}
+
+pub async fn list_user_devices(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<DeviceResponse>>, AppError> {
+    let service = crate::app::fingerprint::FingerprintService::new(state.db.clone());
+
+    let devices = service
+        .get_user_devices(auth.user_id)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, "failed to fetch devices");
+            AppError::internal("failed to fetch devices")
+        })?;
+
+    let response = devices
+        .into_iter()
+        .map(|device| DeviceResponse {
+            fingerprint_hash: device.fingerprint_hash[..16].to_string(), // Truncate for privacy
+            account_count: device.account_count,
+            risk_score: device.risk_score,
+            is_blocked: device.is_blocked,
+        })
+        .collect();
+
+    Ok(Json(response))
+}
+
+// Invite Handlers
+
+pub async fn list_invites(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::app::invites::InviteCode>>, AppError> {
+    let service = crate::app::invites::InviteService::new(state.db.clone());
+
+    let invites = service
+        .list_user_invites(auth.user_id)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, "failed to list invites");
+            AppError::internal("failed to list invites")
+        })?;
+
+    Ok(Json(invites))
+}
+
+#[derive(Deserialize)]
+pub struct CreateInviteRequest {
+    #[serde(default = "default_days_valid")]
+    pub days_valid: i64,
+}
+
+fn default_days_valid() -> i64 {
+    7
+}
+
+pub async fn create_invite(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Json(payload): Json<CreateInviteRequest>,
+) -> Result<Json<crate::app::invites::InviteCode>, AppError> {
+    if payload.days_valid < 1 || payload.days_valid > 30 {
+        return Err(AppError::bad_request("days_valid must be between 1 and 30"));
+    }
+
+    let service = crate::app::invites::InviteService::new(state.db.clone());
+
+    let invite = service
+        .create_invite(auth.user_id, payload.days_valid)
+        .await
+        .map_err(|err| {
+            if err.to_string().contains("Maximum invite limit") {
+                AppError::forbidden(&err.to_string())
+            } else {
+                tracing::error!(error = ?err, "failed to create invite");
+                AppError::internal("failed to create invite")
+            }
+        })?;
+
+    Ok(Json(invite))
+}
+
+pub async fn get_invite_stats(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<crate::app::invites::InviteStats>, AppError> {
+    let service = crate::app::invites::InviteService::new(state.db.clone());
+
+    let stats = service
+        .get_invite_stats(auth.user_id)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, "failed to fetch invite stats");
+            AppError::internal("failed to fetch invite stats")
+        })?;
+
+    Ok(Json(stats))
+}
+
+pub async fn revoke_invite(
+    auth: AuthUser,
+    Path(code): Path<String>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, AppError> {
+    let service = crate::app::invites::InviteService::new(state.db.clone());
+
+    let revoked = service
+        .revoke_invite(&code, auth.user_id)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, "failed to revoke invite");
+            AppError::internal("failed to revoke invite")
+        })?;
+
+    if revoked {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(AppError::not_found("invite code not found or already used"))
+    }
+}

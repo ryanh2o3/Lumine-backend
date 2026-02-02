@@ -21,6 +21,68 @@ All errors are JSON:
 { "error": "message" }
 ```
 
+### Rate Limiting & Safety Features
+
+PicShare implements comprehensive safety and anti-abuse measures:
+
+#### Rate Limiting
+- All authenticated endpoints are rate-limited based on user trust level
+- Rate limits use sliding window algorithm with Redis backend
+- When rate limited, API returns `429 Too Many Requests` with JSON body:
+```json
+{ "error": "Rate limit exceeded for action: post" }
+```
+
+#### Trust Levels
+Users progress through 4 trust levels with increasing rate limits:
+
+| Trust Level | Posts/Hour | Posts/Day | Follows/Day | Likes/Hour |
+|-------------|------------|-----------|-------------|------------|
+| New         | 1          | 5         | 20          | 30         |
+| Basic       | 5          | 20        | 100         | 100        |
+| Trusted     | 20         | 100       | 500         | 500        |
+| Verified    | 50         | 200       | 1000        | 1000       |
+
+**Trust Progression:**
+- New → Basic: 7 days + 5 posts + 20 trust points
+- Basic → Trusted: 90 days + 50 posts + 200 trust points
+- Trusted → Verified: Manual promotion
+
+#### Device Fingerprinting
+- Multi-account detection using FingerprintJS
+- Required for signup and login
+- Helps prevent bot networks and abuse
+
+#### Invite-Only Signup
+- Users need valid invite code to signup
+- Invite quotas based on trust level:
+  - New: 3 invites
+  - Basic: 10 invites
+  - Trusted: 50 invites
+  - Verified: 200 invites
+
+### Best Practices for Safety Integration
+
+1. **Handle Rate Limits Gracefully:**
+   - Catch `429` errors and show user-friendly messages
+   - Implement exponential backoff for retries
+   - Display remaining quota in UI when approaching limits
+
+2. **Device Fingerprinting:**
+   - Integrate FingerprintJS library
+   - Send fingerprint on signup/login
+   - Store fingerprint securely
+
+3. **Invite System:**
+   - Request invite codes from users during signup
+   - Show invite management UI for creating/revoking invites
+   - Display invite statistics
+
+4. **Trust System:**
+   - Show trust level and progress in user profile
+   - Display rate limits and remaining quotas
+   - Provide feedback on actions that earn trust points
+
 ### Pagination
 All list endpoints use:
 - `limit` (default 30, max 200)
@@ -43,13 +105,14 @@ Treat `next_cursor` as an opaque token. Pass it back on the next request to cont
 {
   "id": "uuid",
   "handle": "string",
-  "email": "string",
   "display_name": "string",
   "bio": "string|null",
   "avatar_key": "string|null",
   "created_at": "RFC3339"
 }
 ```
+
+**Note:** Email field has been removed from public User responses for privacy reasons. Email is only available through `/auth/me` endpoint for the authenticated user.
 
 **Post**
 ```json
@@ -140,6 +203,133 @@ Treat `next_cursor` as an opaque token. Pass it back on the next request to cont
 }
 ```
 
+### Safety & Trust Endpoints (auth required)
+
+**GET `/account/trust-score`**
+- Response:
+```json
+{
+  "user_id": "uuid",
+  "trust_level": 1,
+  "trust_level_name": "Basic",
+  "trust_points": 45,
+  "account_age_days": 14,
+  "posts_count": 8,
+  "followers_count": 12,
+  "strikes": 0,
+  "is_banned": false
+}
+```
+
+**GET `/account/rate-limits`**
+- Response:
+```json
+{
+  "trust_level": "Basic",
+  "posts_per_hour": 5,
+  "posts_per_day": 20,
+  "follows_per_hour": 20,
+  "follows_per_day": 100,
+  "likes_per_hour": 100,
+  "comments_per_hour": 30,
+  "remaining": {
+    "posts": 4,
+    "follows": 18,
+    "likes": 95,
+    "comments": 28
+  }
+}
+```
+
+**POST `/account/device/register`**
+- Body:
+```json
+{
+  "fingerprint": "sha256-hash-from-fingerprintjs"
+}
+```
+- Response: `204 No Content`
+
+**GET `/account/devices`**
+- Response:
+```json
+{
+  "devices": [
+    {
+      "fingerprint": "sha256-hash",
+      "risk_score": 5,
+      "first_seen_at": "RFC3339",
+      "last_seen_at": "RFC3339",
+      "account_count": 2
+    }
+  ]
+}
+```
+
+### Invite System Endpoints (auth required)
+
+**GET `/invites`**
+- Response:
+```json
+{
+  "invites": [
+    {
+      "code": "A1B2C3D4E5F6",
+      "created_by": "uuid",
+      "used_by": null,
+      "created_at": "RFC3339",
+      "used_at": null,
+      "expires_at": "RFC3339",
+      "is_valid": true,
+      "invite_type": "standard",
+      "use_count": 0,
+      "max_uses": 1
+    }
+  ],
+  "quota_used": 2,
+  "quota_max": 10
+}
+```
+
+**POST `/invites`**
+- Body:
+```json
+{
+  "days_valid": 7
+}
+```
+- Response:
+```json
+{
+  "code": "A1B2C3D4E5F6",
+  "created_by": "uuid",
+  "used_by": null,
+  "created_at": "RFC3339",
+  "used_at": null,
+  "expires_at": "RFC3339",
+  "is_valid": true,
+  "invite_type": "standard",
+  "use_count": 0,
+  "max_uses": 1
+}
+```
+
+**GET `/invites/stats`**
+- Response:
+```json
+{
+  "total_created": 5,
+  "total_used": 3,
+  "total_expired": 1,
+  "total_revoked": 1,
+  "successful_invites": 3,
+  "trust_points_earned": 30
+}
+```
+
+**POST `/invites/:code/revoke`**
+- Response: `204 No Content`
+
 **POST `/auth/refresh`**
 - Body:
 ```json
@@ -168,10 +358,13 @@ Treat `next_cursor` as an opaque token. Pass it back on the next request to cont
   "display_name": "Demo User",
   "bio": "optional",
   "avatar_key": "optional",
-  "password": "ChangeMe123!"
+  "password": "ChangeMe123!",
+  "invite_code": "A1B2C3D4E5F6"
 }
 ```
 - Response: `User`
+
+**Note:** Invite code is required for signup. Users must obtain an invite code from existing users.
 
 **GET `/users/:id`**
 - Response: `User`
@@ -390,4 +583,103 @@ Treat `next_cursor` as an opaque token. Pass it back on the next request to cont
 - Prefer optimistic UI updates for likes/comments, then reconcile with the API response.
 - Use `POST /feed/refresh` after heavy activity (posting, following) to invalidate cache.
 - Keep refresh tokens secure and rotate on each refresh call.
+
+### Safety Integration Best Practices
+
+#### Rate Limit Handling
+```swift
+// Example: Handle rate limit errors gracefully
+func performAction() async {
+    do {
+        let result = try await apiClient.send(request)
+        // Success
+    } catch APIError.serverError(let message, let statusCode) {
+        if statusCode == 429 {
+            // Show user-friendly rate limit message
+            showAlert(title: "Rate Limit", message: "You've reached your limit for this action. Please try again later.")
+            
+            // Optional: Fetch remaining quotas
+            let rateLimits = try await apiClient.send(RateLimitsRequest())
+            updateUIWithRemainingQuotas(rateLimits.remaining)
+        }
+    }
+}
+```
+
+#### Device Fingerprinting Integration
+```swift
+// Example: Register device fingerprint on login
+import FingerprintJS
+
+func login(email: String, password: String) async throws -> AuthResponse {
+    // Get device fingerprint
+    let fingerprint = try await FingerprintJS.getFingerprint()
+    
+    // Send to backend
+    let request = DeviceRegisterRequest(fingerprint: fingerprint)
+    try await apiClient.sendNoContent(request)
+    
+    // Proceed with login
+    let authRequest = LoginRequest(email: email, password: password)
+    return try await apiClient.send(authRequest)
+}
+```
+
+#### Invite System Integration
+```swift
+// Example: Handle invite code during signup
+func signup(withInviteCode inviteCode: String) async throws -> User {
+    let request = SignupRequest(
+        handle: handle,
+        email: email,
+        displayName: displayName,
+        password: password,
+        inviteCode: inviteCode
+    )
+    return try await apiClient.send(request)
+}
+```
+
+#### Trust System UI Integration
+```swift
+// Example: Show trust level and progress
+func loadTrustInfo() async {
+    let trustScore = try await apiClient.send(TrustScoreRequest())
+    let rateLimits = try await apiClient.send(RateLimitsRequest())
+    
+    updateUI(
+        trustLevel: trustScore.trustLevelName,
+        trustPoints: trustScore.trustPoints,
+        nextLevelPoints: trustScore.nextLevelPoints,
+        remainingPosts: rateLimits.remaining.posts
+    )
+}
+```
+
+### Error Handling Enhancements
+
+Add new error cases to handle safety features:
+
+```swift
+extension APIError {
+    case rateLimited(action: String, retryAfter: TimeInterval?)
+    case inviteRequired
+    case deviceBlocked
+    case trustLevelInsufficient
+}
+```
+
+### Monitoring & Analytics
+
+Track safety-related metrics:
+- Rate limit violations (by action type)
+- Trust level progression events
+- Invite code usage and success rates
+- Device fingerprint registrations
+
+**Do NOT log:**
+- User email addresses
+- Device fingerprints
+- Invite codes
+- Rate limit quotas
 

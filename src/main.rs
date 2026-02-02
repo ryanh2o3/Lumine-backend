@@ -1,5 +1,6 @@
 use axum::Router;
 use anyhow::anyhow;
+use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -65,6 +66,10 @@ async fn main() -> anyhow::Result<()> {
             let app: Router = http::router(state).layer(TraceLayer::new_for_http());
             let listener = tokio::net::TcpListener::bind(&config.http_addr).await?;
             tracing::info!("listening on {}", config.http_addr);
+            
+            // Convert the router to handle ConnectInfo properly
+            let app = app.into_make_service_with_connect_info::<SocketAddr>();
+            
             axum::serve(listener, app)
                 .with_graceful_shutdown(shutdown_signal())
                 .await?;

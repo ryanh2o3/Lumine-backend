@@ -99,3 +99,18 @@ pub fn search() -> Router<AppState> {
         .route("/search/posts", get(handlers::search_posts))
 }
 
+pub fn safety() -> Router<AppState> {
+    Router::new()
+        // Trust & Rate Limiting
+        .route("/account/trust-score", get(handlers::get_trust_score))
+        .route("/account/rate-limits", get(handlers::get_rate_limits))
+        // Device Fingerprinting
+        .route("/account/device/register", post(handlers::register_device_fingerprint))
+        .route("/account/devices", get(handlers::list_user_devices))
+        // Invite System
+        .route("/invites", get(handlers::list_invites))
+        .route("/invites", post(handlers::create_invite))
+        .route("/invites/stats", get(handlers::get_invite_stats))
+        .route("/invites/:code/revoke", post(handlers::revoke_invite))
+}
+
