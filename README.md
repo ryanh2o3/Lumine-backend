@@ -2,6 +2,8 @@
 
 PicShare is a photo‑only social media app focused on simple sharing and a clean feed. It is designed to run centrally in Europe with a focus on efficiency, low operating costs, and predictable scaling.
 
+**License**: AGPL-3.0 - See [LICENSE](LICENSE) file for details.
+
 This has not been deployed to cloud services yet. Still working on the ios and android clients. Don't want to be costing a fortune just for me to test my half finished clients :)
 
 ## Goals
