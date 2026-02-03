@@ -1,0 +1,16 @@
+# Example terraform.tfvars for dev environment
+# Copy this to terraform.tfvars and fill in the values
+
+# Scaleway project ID
+project_id = "your-scaleway-project-id"
+
+# Database credentials (generate secure passwords)
+db_admin_password = "secure-admin-password"
+db_user_password  = "secure-user-password"
+
+# PASETO keys - generate with: openssl rand -base64 32
+paseto_access_key  = "base64-encoded-32-byte-key"
+paseto_refresh_key = "base64-encoded-32-byte-key"
+
+# Admin token (optional)
+# admin_token = "secure-admin-token"
