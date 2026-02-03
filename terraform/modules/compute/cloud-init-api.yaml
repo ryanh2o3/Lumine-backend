@@ -1,0 +1,84 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+
+write_files:
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+
+  - path: /opt/ciel/.env
+    content: |
+      APP_MODE=api
+      HTTP_ADDR=${http_addr}
+      DATABASE_URL=${database_url}
+      REDIS_URL=${redis_url}
+      S3_ENDPOINT=${s3_endpoint}
+      S3_REGION=${s3_region}
+      S3_BUCKET=${s3_bucket}
+      S3_PUBLIC_ENDPOINT=${s3_public_endpoint}
+      AWS_ACCESS_KEY_ID=${s3_access_key}
+      AWS_SECRET_ACCESS_KEY=${s3_secret_key}
+      QUEUE_ENDPOINT=${queue_endpoint}
+      QUEUE_REGION=${queue_region}
+      QUEUE_NAME=${queue_name}
+      SQS_ACCESS_KEY=${sqs_access_key}
+      SQS_SECRET_KEY=${sqs_secret_key}
+      PASETO_ACCESS_KEY=${paseto_access_key}
+      PASETO_REFRESH_KEY=${paseto_refresh_key}
+      ADMIN_TOKEN=${admin_token}
+      RUST_LOG=${rust_log}
+    permissions: '0600'
+
+  - path: /opt/ciel/docker-compose.yml
+    content: |
+      version: '3.8'
+      services:
+        api:
+          image: ${registry_endpoint}/${app_name}:${image_tag}
+          restart: unless-stopped
+          env_file:
+            - .env
+          ports:
+            - "8080:8080"
+          logging:
+            driver: json-file
+            options:
+              max-size: "10m"
+              max-file: "3"
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+
+runcmd:
+  # Install Docker
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  - chmod a+r /etc/apt/keyrings/docker.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+  # Login to Scaleway Container Registry
+  - echo "${registry_password}" | docker login ${registry_endpoint} -u nologin --password-stdin
+
+  # Pull and start the application
+  - cd /opt/ciel && docker compose pull
+  - cd /opt/ciel && docker compose up -d
+
+  # Enable Docker to start on boot
+  - systemctl enable docker

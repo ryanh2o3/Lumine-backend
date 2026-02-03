@@ -1,0 +1,87 @@
+variable "project_id" {
+  description = "Scaleway project ID"
+  type        = string
+}
+
+variable "region" {
+  description = "Scaleway region"
+  type        = string
+  default     = "fr-par"
+}
+
+variable "zone" {
+  description = "Scaleway zone"
+  type        = string
+  default     = "fr-par-1"
+}
+
+variable "environment" {
+  description = "Environment name (dev, staging, prod)"
+  type        = string
+}
+
+variable "app_name" {
+  description = "Application name"
+  type        = string
+  default     = "ciel"
+}
+
+variable "enable_load_balancer" {
+  description = "Enable load balancer for API instances"
+  type        = bool
+  default     = true
+}
+
+variable "lb_type" {
+  description = "Load balancer type"
+  type        = string
+  default     = "LB-S"
+}
+
+variable "enable_bastion" {
+  description = "Enable bastion host for SSH access"
+  type        = bool
+  default     = false
+}
+
+variable "bastion_instance_type" {
+  description = "Bastion instance type"
+  type        = string
+  default     = "DEV1-S"
+}
+
+variable "private_network_cidr" {
+  description = "CIDR block for private network"
+  type        = string
+  default     = "10.0.0.0/24"
+}
+
+variable "enable_public_gateway" {
+  description = "Enable public gateway for outbound internet access"
+  type        = bool
+  default     = true
+}
+
+variable "public_gateway_type" {
+  description = "Public gateway type"
+  type        = string
+  default     = "VPC-GW-S"
+}
+
+variable "ssl_certificate_ids" {
+  description = "SSL certificate IDs for HTTPS termination"
+  type        = list(string)
+  default     = []
+}
+
+variable "health_check_path" {
+  description = "Health check endpoint path"
+  type        = string
+  default     = "/health"
+}
+
+variable "tags" {
+  description = "Tags to apply to resources"
+  type        = list(string)
+  default     = []
+}

@@ -1,0 +1,52 @@
+output "instance_id" {
+  description = "Database instance ID"
+  value       = scaleway_rdb_instance.main.id
+}
+
+output "endpoint_ip" {
+  description = "Database endpoint IP"
+  value       = scaleway_rdb_instance.main.endpoint_ip
+}
+
+output "endpoint_port" {
+  description = "Database endpoint port"
+  value       = scaleway_rdb_instance.main.endpoint_port
+}
+
+output "private_endpoint" {
+  description = "Database private network endpoint"
+  value       = length(scaleway_rdb_instance.main.private_network) > 0 ? scaleway_rdb_instance.main.private_network[0].ip : null
+}
+
+output "database_name" {
+  description = "Database name"
+  value       = scaleway_rdb_database.main.name
+}
+
+output "database_user" {
+  description = "Database user"
+  value       = scaleway_rdb_user.app.name
+}
+
+output "database_url" {
+  description = "Full database connection URL"
+  value       = "postgres://${scaleway_rdb_user.app.name}:${var.db_password}@${scaleway_rdb_instance.main.private_network[0].ip}:${scaleway_rdb_instance.main.private_network[0].port}/${scaleway_rdb_database.main.name}?sslmode=require"
+  sensitive   = true
+}
+
+output "read_replica_endpoints" {
+  description = "Read replica endpoints"
+  value = [
+    for replica in scaleway_rdb_read_replica.main :
+    length(replica.private_network) > 0 ? replica.private_network[0].ip : null
+  ]
+}
+
+output "read_replica_urls" {
+  description = "Read replica connection URLs"
+  value = [
+    for replica in scaleway_rdb_read_replica.main :
+    "postgres://${scaleway_rdb_user.app.name}:${var.db_password}@${replica.private_network[0].ip}:${replica.private_network[0].port}/${scaleway_rdb_database.main.name}?sslmode=require"
+  ]
+  sensitive = true
+}

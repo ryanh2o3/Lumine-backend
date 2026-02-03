@@ -42,6 +42,72 @@ Ciel is designed to be cost-effective at launch while keeping the same core arch
 - **Object storage + CDN**: Scaleway Object Storage + Edge Services.
 - **Queue**: SQS-compatible (Scaleway Messaging); workers consume events.
 
+Suggested starting infra
+Here’s a cost-optimized Scaleway setup for PicShare’s early-stage infrastructure (up to 10k users, ~€100/month budget), based on your requirements:
+
+1. Compute (API + Workers)
+
+Start with:
+
+2x DEV1-S (Shared Core, €3.99/month each)
+
+2 vCPUs, 2GB RAM, 20GB SSD
+Use case: Run API + async workers on separate instances.
+
+Why?
+
+Cheapest option for horizontal scaling.
+Upgrade to DEV1-M (€7.99/month) if CPU-bound.
+
+Scaling:
+
+Add more DEV1-S instances as traffic grows.
+
+2. Database (PostgreSQL)
+
+Start with:
+
+Managed PostgreSQL Startup (€19/month)
+
+2 vCPUs, 4GB RAM, 50GB storage
+Read replicas: Add later (~€19/month each).
+
+Why?
+
+Fully managed, backups included.
+Supports 10k users easily.
+
+3. Cache (Redis)
+
+Start with:
+
+Self-managed Redis on a DEV1-S instance (€3.99/month)
+
+Use Scaleway’s Redis Marketplace image.
+
+Later:
+
+Migrate to Managed Redis (~€20/month).
+
+4. Object Storage + CDN
+
+Object Storage:
+
+S3-compatible (€0.03/GB/month, first 75GB free)
+
+CDN:
+
+Edge Services (€0.02/GB egress, free for first 1TB)
+
+5. Queue (SQS-compatible)
+
+Scaleway Messaging (SQS-compatible):
+
+Pricing:
+
+1M requests/month free, then €0.60/million requests.
+~€1–2/month for 10k users.
+
 **Feed strategy**
 Start fan-out-on-read with aggressive caching and pagination. As activity grows, add a hybrid path that precomputes timelines for high-activity users and during peak hours.
 
