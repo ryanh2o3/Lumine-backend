@@ -17,28 +17,28 @@ data "template_file" "cloud_init_api" {
   template = file("${path.module}/cloud-init-api.yaml")
 
   vars = {
-    app_name          = var.app_name
-    image_tag         = var.container_image_tag
-    registry_endpoint = scaleway_registry_namespace.main.endpoint
-    registry_password = scaleway_registry_namespace.main.id
-    http_addr         = var.http_addr
-    database_url      = var.database_url
-    redis_url         = var.redis_url
-    s3_endpoint       = var.s3_endpoint
-    s3_region         = var.s3_region
-    s3_bucket         = var.s3_bucket
+    app_name           = var.app_name
+    image_tag          = var.container_image_tag
+    registry_endpoint  = scaleway_registry_namespace.main.endpoint
+    scw_secret_key     = var.scw_secret_key
+    http_addr          = var.http_addr
+    database_url       = var.database_url
+    redis_url          = var.redis_url
+    s3_endpoint        = var.s3_endpoint
+    s3_region          = var.s3_region
+    s3_bucket          = var.s3_bucket
     s3_public_endpoint = var.s3_public_endpoint
-    s3_access_key     = var.s3_access_key
-    s3_secret_key     = var.s3_secret_key
-    queue_endpoint    = var.queue_endpoint
-    queue_region      = var.queue_region
-    queue_name        = var.queue_name
-    sqs_access_key    = var.sqs_access_key
-    sqs_secret_key    = var.sqs_secret_key
-    paseto_access_key = var.paseto_access_key
+    s3_access_key      = var.s3_access_key
+    s3_secret_key      = var.s3_secret_key
+    queue_endpoint     = var.queue_endpoint
+    queue_region       = var.queue_region
+    queue_name         = var.queue_name
+    sqs_access_key     = var.sqs_access_key
+    sqs_secret_key     = var.sqs_secret_key
+    paseto_access_key  = var.paseto_access_key
     paseto_refresh_key = var.paseto_refresh_key
-    admin_token       = var.admin_token
-    rust_log          = var.rust_log
+    admin_token        = var.admin_token
+    rust_log           = var.rust_log
   }
 }
 
@@ -47,24 +47,24 @@ data "template_file" "cloud_init_worker" {
   template = file("${path.module}/cloud-init-worker.yaml")
 
   vars = {
-    app_name          = var.app_name
-    image_tag         = var.container_image_tag
-    registry_endpoint = scaleway_registry_namespace.main.endpoint
-    registry_password = scaleway_registry_namespace.main.id
-    database_url      = var.database_url
-    redis_url         = var.redis_url
-    s3_endpoint       = var.s3_endpoint
-    s3_region         = var.s3_region
-    s3_bucket         = var.s3_bucket
+    app_name           = var.app_name
+    image_tag          = var.container_image_tag
+    registry_endpoint  = scaleway_registry_namespace.main.endpoint
+    scw_secret_key     = var.scw_secret_key
+    database_url       = var.database_url
+    redis_url          = var.redis_url
+    s3_endpoint        = var.s3_endpoint
+    s3_region          = var.s3_region
+    s3_bucket          = var.s3_bucket
     s3_public_endpoint = var.s3_public_endpoint
-    s3_access_key     = var.s3_access_key
-    s3_secret_key     = var.s3_secret_key
-    queue_endpoint    = var.queue_endpoint
-    queue_region      = var.queue_region
-    queue_name        = var.queue_name
-    sqs_access_key    = var.sqs_access_key
-    sqs_secret_key    = var.sqs_secret_key
-    rust_log          = var.rust_log
+    s3_access_key      = var.s3_access_key
+    s3_secret_key      = var.s3_secret_key
+    queue_endpoint     = var.queue_endpoint
+    queue_region       = var.queue_region
+    queue_name         = var.queue_name
+    sqs_access_key     = var.sqs_access_key
+    sqs_secret_key     = var.sqs_secret_key
+    rust_log           = var.rust_log
   }
 }
 

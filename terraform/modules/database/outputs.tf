@@ -18,6 +18,16 @@ output "private_endpoint" {
   value       = length(scaleway_rdb_instance.main.private_network) > 0 ? scaleway_rdb_instance.main.private_network[0].ip : null
 }
 
+output "primary_endpoint" {
+  description = "Primary database endpoint (host:port)"
+  value       = length(scaleway_rdb_instance.main.private_network) > 0 ? "${scaleway_rdb_instance.main.private_network[0].ip}:${scaleway_rdb_instance.main.private_network[0].port}" : null
+}
+
+output "read_endpoint" {
+  description = "Read replica endpoint (first replica, host:port)"
+  value       = length(scaleway_rdb_read_replica.main) > 0 && length(scaleway_rdb_read_replica.main[0].private_network) > 0 ? "${scaleway_rdb_read_replica.main[0].private_network[0].ip}:${scaleway_rdb_read_replica.main[0].private_network[0].port}" : null
+}
+
 output "database_name" {
   description = "Database name"
   value       = scaleway_rdb_database.main.name
@@ -30,7 +40,7 @@ output "database_user" {
 
 output "database_url" {
   description = "Full database connection URL"
-  value       = "postgres://${scaleway_rdb_user.app.name}:${var.db_password}@${scaleway_rdb_instance.main.private_network[0].ip}:${scaleway_rdb_instance.main.private_network[0].port}/${scaleway_rdb_database.main.name}?sslmode=require"
+  value       = "postgres://${scaleway_rdb_user.app.name}:${var.db_user_password}@${scaleway_rdb_instance.main.private_network[0].ip}:${scaleway_rdb_instance.main.private_network[0].port}/${scaleway_rdb_database.main.name}?sslmode=require"
   sensitive   = true
 }
 
@@ -46,7 +56,7 @@ output "read_replica_urls" {
   description = "Read replica connection URLs"
   value = [
     for replica in scaleway_rdb_read_replica.main :
-    "postgres://${scaleway_rdb_user.app.name}:${var.db_password}@${replica.private_network[0].ip}:${replica.private_network[0].port}/${scaleway_rdb_database.main.name}?sslmode=require"
+    "postgres://${scaleway_rdb_user.app.name}:${var.db_user_password}@${replica.private_network[0].ip}:${replica.private_network[0].port}/${scaleway_rdb_database.main.name}?sslmode=require"
   ]
   sensitive = true
 }

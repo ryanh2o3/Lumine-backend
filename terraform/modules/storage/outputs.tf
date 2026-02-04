@@ -23,6 +23,11 @@ output "s3_public_endpoint" {
   value       = var.cdn_custom_domain != null ? "https://${var.cdn_custom_domain}" : "https://${scaleway_object_bucket.media.name}.s3.${var.region}.scw.cloud"
 }
 
+output "cdn_endpoint" {
+  description = "CDN/public endpoint for media (alias for s3_public_endpoint)"
+  value       = var.cdn_custom_domain != null ? "https://${var.cdn_custom_domain}" : "https://${scaleway_object_bucket.media.name}.s3.${var.region}.scw.cloud"
+}
+
 output "s3_access_key" {
   description = "S3 access key ID"
   value       = scaleway_iam_api_key.s3_access.access_key

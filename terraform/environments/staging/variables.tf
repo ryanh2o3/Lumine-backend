@@ -18,6 +18,13 @@ variable "region" {
   default     = "fr-par"
 }
 
+# Scaleway credentials
+variable "scw_secret_key" {
+  description = "Scaleway secret key for container registry authentication"
+  type        = string
+  sensitive   = true
+}
+
 # Database credentials
 variable "db_admin_password" {
   description = "Database admin password"
@@ -27,6 +34,13 @@ variable "db_admin_password" {
 
 variable "db_user_password" {
   description = "Database user password"
+  type        = string
+  sensitive   = true
+}
+
+# Redis password
+variable "redis_password" {
+  description = "Redis password"
   type        = string
   sensitive   = true
 }
@@ -50,6 +64,13 @@ variable "admin_token" {
   type        = string
   sensitive   = true
   default     = null
+}
+
+# Container image
+variable "container_image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "staging-latest"
 }
 
 # DNS Configuration

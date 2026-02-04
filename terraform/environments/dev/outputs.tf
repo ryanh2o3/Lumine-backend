@@ -63,7 +63,7 @@ output "sqs_secret_key" {
 
 output "bastion_ip" {
   description = "Bastion host public IP (if enabled)"
-  value       = module.networking.bastion_ip
+  value       = module.networking.bastion_public_ip
 }
 
 output "private_network_id" {

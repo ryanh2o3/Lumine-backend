@@ -198,3 +198,9 @@ variable "tags" {
   type        = list(string)
   default     = []
 }
+
+variable "scw_secret_key" {
+  description = "Scaleway secret key for container registry authentication"
+  type        = string
+  sensitive   = true
+}

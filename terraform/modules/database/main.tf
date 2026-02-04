@@ -38,7 +38,7 @@ resource "scaleway_rdb_database" "main" {
 resource "scaleway_rdb_user" "app" {
   instance_id = scaleway_rdb_instance.main.id
   name        = var.db_user
-  password    = var.db_password
+  password    = var.db_user_password
   is_admin    = false
 }
 

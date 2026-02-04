@@ -9,6 +9,12 @@ variable "region" {
   default     = "fr-par"
 }
 
+variable "zone" {
+  description = "Scaleway zone"
+  type        = string
+  default     = "fr-par-1"
+}
+
 variable "environment" {
   description = "Environment name (dev, staging, prod)"
   type        = string
@@ -44,8 +50,14 @@ variable "db_user" {
   default     = "ciel_app"
 }
 
-variable "db_password" {
-  description = "Database password"
+variable "db_admin_password" {
+  description = "Database admin password (for the default admin user)"
+  type        = string
+  sensitive   = true
+}
+
+variable "db_user_password" {
+  description = "Database application user password"
   type        = string
   sensitive   = true
 }

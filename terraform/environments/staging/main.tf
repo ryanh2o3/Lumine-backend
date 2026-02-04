@@ -3,6 +3,17 @@
 
 terraform {
   required_version = ">= 1.5.0"
+
+  required_providers {
+    scaleway = {
+      source  = "scaleway/scaleway"
+      version = "~> 2.40"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
+  }
 }
 
 # Configure the Scaleway provider
@@ -14,35 +25,15 @@ provider "scaleway" {
 
 # Shared variables
 locals {
-  app_name     = "ciel"
-  environment  = "staging"
-  tags         = ["environment:staging", "managed-by:terraform"]
+  app_name    = "ciel"
+  environment = "staging"
+  tags        = ["environment:staging", "managed-by:terraform"]
 }
 
 # Networking Module
 module "networking" {
   source = "../../modules/networking"
 
-  project_id            = var.project_id
-  region                = var.region
-  zone                  = var.zone
-  environment           = local.environment
-  app_name              = local.app_name
-  tags                  = local.tags
-
-  # Staging-specific settings
-  enable_load_balancer  = true  # Use load balancer for staging
-  enable_bastion        = true   # Allow SSH access for debugging
-  enable_public_gateway = true
-  private_network_cidr  = "10.0.2.0/24"  # Different CIDR for staging
-  lb_type               = "LB-S"
-  ssl_certificate_ids  = var.enable_dns ? module.dns[0].ssl_certificate_ids : []
-}
-
-# Compute Module
-module "compute" {
-  source = "../../modules/compute"
-
   project_id           = var.project_id
   region               = var.region
   zone                 = var.zone
@@ -50,77 +41,74 @@ module "compute" {
   app_name             = local.app_name
   tags                 = local.tags
 
-  # Staging-specific settings - slightly larger than dev
-  api_instance_count   = 2
-  api_instance_type    = "DEV1-S"
-  worker_instance_count = 1
-  worker_instance_type = "DEV1-S"
-
-  # Use staging container image
-  container_image_tag  = "staging-latest"
-
-  # Network dependencies
-  private_network_id   = module.networking.private_network_id
-  api_security_group_id = module.networking.api_security_group_id
-  worker_security_group_id = module.networking.worker_security_group_id
+  # Staging-specific settings
+  enable_load_balancer  = true
+  enable_bastion        = true  # Allow SSH access for debugging
+  enable_public_gateway = true
+  private_network_cidr  = "10.0.2.0/24"
+  lb_type               = "LB-S"
+  ssl_certificate_ids   = var.enable_dns ? module.dns[0].ssl_certificate_ids : []
 }
 
 # Database Module
 module "database" {
   source = "../../modules/database"
 
-  project_id          = var.project_id
-  region              = var.region
-  zone                = var.zone
-  environment         = local.environment
-  app_name            = local.app_name
-  tags                = local.tags
+  project_id         = var.project_id
+  region             = var.region
+  zone               = var.zone
+  environment        = local.environment
+  app_name           = local.app_name
+  tags               = local.tags
 
   # Staging-specific settings
-  db_node_type        = "DB-DEV-S"
-  enable_ha           = false
-  volume_size_in_gb   = 10
-  read_replica_count  = 0
+  db_node_type       = "DB-DEV-S"
+  enable_ha          = false
+  volume_size_in_gb  = 10
+  read_replica_count = 0
 
   # Database credentials
-  db_admin_password   = var.db_admin_password
-  db_user_password    = var.db_user_password
+  db_admin_password  = var.db_admin_password
+  db_user_password   = var.db_user_password
+
+  # Network
+  private_network_id = module.networking.private_network_id
 }
 
 # Cache Module
 module "cache" {
   source = "../../modules/cache"
 
-  project_id           = var.project_id
-  region               = var.region
-  zone                 = var.zone
-  environment          = local.environment
-  app_name             = local.app_name
-  tags                 = local.tags
+  project_id         = var.project_id
+  region             = var.region
+  zone               = var.zone
+  environment        = local.environment
+  app_name           = local.app_name
+  tags               = local.tags
 
   # Staging-specific settings - self-managed Redis
-  use_managed_redis    = false
-  redis_instance_type  = "DEV1-S"
+  use_managed_redis  = false
+  redis_instance_type = "DEV1-S"
+  redis_password     = var.redis_password
 
   # Network dependencies
-  private_network_id    = module.networking.private_network_id
-  redis_security_group_id = module.networking.redis_security_group_id
+  private_network_id = module.networking.private_network_id
+  security_group_id  = module.networking.redis_security_group_id
 }
 
 # Storage Module
 module "storage" {
   source = "../../modules/storage"
 
-  project_id          = var.project_id
-  region              = var.region
-  zone                = var.zone
-  environment         = local.environment
-  app_name            = local.app_name
-  tags                = local.tags
+  project_id           = var.project_id
+  region               = var.region
+  environment          = local.environment
+  app_name             = local.app_name
+  tags                 = local.tags
 
   # Staging-specific settings
-  cors_allowed_origins = ["https://staging.ciel.example.com"]
-  enable_cdn           = true  # Enable CDN for staging
+  cors_allowed_origins = ["https://staging.ciel-social.eu"]
+  enable_cdn           = true
   enable_glacier_transition = false
 }
 
@@ -128,15 +116,15 @@ module "storage" {
 module "messaging" {
   source = "../../modules/messaging"
 
-  project_id          = var.project_id
-  region              = var.region
-  zone                = var.zone
-  environment         = local.environment
-  app_name            = local.app_name
-  tags                = local.tags
+  project_id                = var.project_id
+  region                    = var.region
+  zone                      = var.zone
+  environment               = local.environment
+  app_name                  = local.app_name
+  tags                      = local.tags
 
   # Staging-specific settings
-  enable_dlq           = true
+  enable_dlq                = true
   message_retention_seconds = 345600  # 4 days
 }
 
@@ -157,19 +145,68 @@ module "secrets" {
   admin_token        = var.admin_token
 }
 
+# Compute Module
+module "compute" {
+  source = "../../modules/compute"
+
+  project_id               = var.project_id
+  region                   = var.region
+  zone                     = var.zone
+  environment              = local.environment
+  app_name                 = local.app_name
+  tags                     = local.tags
+
+  # Staging-specific settings - slightly larger than dev
+  api_instance_count       = 2
+  api_instance_type        = "DEV1-S"
+  worker_instance_count    = 1
+  worker_instance_type     = "DEV1-S"
+
+  # Use staging container image
+  container_image_tag      = var.container_image_tag
+
+  # Network dependencies
+  private_network_id       = module.networking.private_network_id
+  api_security_group_id    = module.networking.api_security_group_id
+  worker_security_group_id = module.networking.worker_security_group_id
+  load_balancer_backend_id = module.networking.load_balancer_backend_id
+
+  # Scaleway credentials for registry auth
+  scw_secret_key           = var.scw_secret_key
+
+  # Application configuration from other modules
+  database_url             = module.database.database_url
+  redis_url                = module.cache.redis_url
+  s3_endpoint              = module.storage.s3_endpoint
+  s3_region                = var.region
+  s3_bucket                = module.storage.bucket_name
+  s3_public_endpoint       = module.storage.s3_public_endpoint
+  s3_access_key            = module.storage.s3_access_key
+  s3_secret_key            = module.storage.s3_secret_key
+  queue_endpoint           = module.messaging.queue_endpoint
+  queue_region             = var.region
+  queue_name               = module.messaging.queue_name
+  sqs_access_key           = module.messaging.sqs_access_key
+  sqs_secret_key           = module.messaging.sqs_secret_key
+  paseto_access_key        = var.paseto_access_key
+  paseto_refresh_key       = var.paseto_refresh_key
+  admin_token              = var.admin_token != null ? var.admin_token : ""
+  rust_log                 = "info,ciel=debug"
+}
+
 # Observability Module
 module "observability" {
   source = "../../modules/observability"
 
-  project_id         = var.project_id
-  region             = var.region
-  zone               = var.zone
-  environment        = local.environment
-  app_name           = local.app_name
-  tags               = local.tags
+  project_id    = var.project_id
+  region        = var.region
+  zone          = var.zone
+  environment   = local.environment
+  app_name      = local.app_name
+  tags          = local.tags
 
   # Staging-specific settings
-  enable_alerts      = true  # Enable alerts for staging
+  enable_alerts = true
 }
 
 # DNS Module
@@ -178,16 +215,16 @@ module "dns" {
 
   count = var.enable_dns ? 1 : 0
 
-  domain_name        = var.domain_name
-  api_subdomain      = "staging-api"
-  cdn_subdomain      = "staging-media"
-  load_balancer_ip   = module.networking.load_balancer_ip
-  cdn_endpoint       = module.storage.cdn_endpoint
+  domain_name      = var.domain_name
+  api_subdomain    = "staging-api"
+  cdn_subdomain    = "staging-media"
+  load_balancer_ip = module.networking.load_balancer_ip
+  cdn_endpoint     = module.storage.cdn_endpoint
 
   # Staging-specific settings
-  enable_api_dns     = true
-  enable_cdn_dns     = true
-  enable_www_dns     = true
-  enable_root_dns    = false  # Use staging subdomain only
-  enable_ssl         = true   # Enable SSL for staging
+  enable_api_dns  = true
+  enable_cdn_dns  = true
+  enable_www_dns  = true
+  enable_root_dns = false  # Use staging subdomain only
+  enable_ssl      = true
 }

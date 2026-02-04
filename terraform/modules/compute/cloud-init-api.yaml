@@ -73,8 +73,8 @@ runcmd:
   - apt-get update
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-  # Login to Scaleway Container Registry
-  - echo "${registry_password}" | docker login ${registry_endpoint} -u nologin --password-stdin
+  # Login to Scaleway Container Registry (uses SCW secret key as password)
+  - echo "${scw_secret_key}" | docker login ${registry_endpoint} -u nologin --password-stdin
 
   # Pull and start the application
   - cd /opt/ciel && docker compose pull
