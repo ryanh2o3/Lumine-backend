@@ -22,11 +22,9 @@ on:
       environment:
         description: "Environment to deploy to"
         required: true
-        default: "dev"
+        default: "prod"
         type: choice
         options:
-          - dev
-          - staging
           - prod
       force_apply:
         description: "Force terraform apply even if no changes"
@@ -92,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [dev, staging, prod]
+        environment: [prod]
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout code
@@ -166,7 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [dev, staging, prod]
+        environment: [prod]
       max-parallel: 1  # Deploy environments sequentially
     environment: ${{ matrix.environment }}
     steps:
@@ -213,7 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [dev, staging, prod]
+        environment: [prod]
       max-parallel: 1
     environment: ${{ matrix.environment }}
     steps:
@@ -276,5 +274,5 @@ jobs:
           SLACK_WEBHOOK: ${{ vars.SLACK_WEBHOOK_URL }}
           SLACK_COLOR: ${{ needs.terraform-apply.result == 'success' && needs.database-migrations.result == 'success' && 'good' || 'danger' }}
           SLACK_TITLE: "Ciel Deployment ${{ needs.terraform-apply.result == 'success' && needs.database-migrations.result == 'success' && 'Succeeded' || 'Failed' }}"
-          SLACK_MESSAGE: "Environments deployed: dev, staging, prod"
+          SLACK_MESSAGE: "Environment deployed: prod"
           SLACK_FOOTER: "Triggered by ${{ github.actor }}"
