@@ -477,6 +477,274 @@ sealed class ApiException(message: String) : Exception(message) {
 }
 ```
 
+## 📸 Stories Integration Guide
+
+### Stories Feature Overview
+
+The Ciel Stories feature allows users to share temporary photo content that disappears after 24 hours. Key features:
+
+- **Photo-only stories** (no videos)
+- **24-hour expiration**
+- **Privacy controls** (Public, Friends Only, Close Friends Only)
+- **Reactions** (emoji-only, no DMs)
+- **View tracking**
+- **Story highlights** (permanent collections)
+
+### Swift Implementation Example
+
+```swift
+// StoryService.swift
+class StoryService {
+    static let shared = StoryService()
+    private let apiClient = APIClient.shared
+
+    func createStory(mediaId: String, caption: String?, visibility: StoryVisibility, completion: @escaping (Result<Story, APIError>) -> Void) {
+        let endpoint = "/stories"
+        let body: [String: Any] = [
+            "media_id": mediaId,
+            "caption": caption ?? NSNull(),
+            "visibility": visibility.rawValue
+        ]
+        
+        apiClient.makeRequest(endpoint: endpoint, method: "POST", body: body, completion: completion)
+    }
+
+    func getUserStories(userId: String, limit: Int = 20, cursor: String? = nil, completion: @escaping (Result<[Story], APIError>) -> Void) {
+        var queryParams = ["limit": String(limit)]
+        if let cursor = cursor {
+            queryParams["cursor"] = cursor
+        }
+        
+        let endpoint = "/users/" + userId + "/stories"
+        apiClient.makeRequest(endpoint: endpoint, method: "GET", queryParams: queryParams, completion: completion)
+    }
+
+    func addReaction(storyId: String, emoji: String, completion: @escaping (Result<Void, APIError>) -> Void) {
+        let endpoint = "/stories/" + storyId + "/reactions"
+        let body: [String: Any] = ["emoji": emoji]
+        
+        apiClient.makeRequest(endpoint: endpoint, method: "POST", body: body) { result in
+            switch result {
+            case .success:
+                completion(.success(()))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    func getStoriesFeed(limit: Int = 20, cursor: String? = nil, completion: @escaping (Result<[Story], APIError>) -> Void) {
+        var queryParams = ["limit": String(limit)]
+        if let cursor = cursor {
+            queryParams["cursor"] = cursor
+        }
+        
+        let endpoint = "/feed/stories"
+        apiClient.makeRequest(endpoint: endpoint, method: "GET", queryParams: queryParams, completion: completion)
+    }
+}
+
+// Story Model
+enum StoryVisibility: String, Codable {
+    case public = "public"
+    case friendsOnly = "friends_only"
+    case closeFriendsOnly = "close_friends_only"
+}
+
+struct Story: Codable {
+    let id: String
+    let userId: String
+    let mediaId: String
+    let caption: String?
+    let createdAt: String
+    let expiresAt: String
+    let visibility: StoryVisibility
+    let viewCount: Int
+    let reactionCount: Int
+    let isHighlight: Bool
+    let highlightName: String?
+}
+
+struct StoryReaction: Codable {
+    let id: String
+    let storyId: String
+    let userId: String
+    let emoji: String
+    let createdAt: String
+}
+
+struct StoryMetrics: Codable {
+    let viewCount: Int
+    let reactionCount: Int
+    let reactionsByEmoji: [[String]]
+    let viewerIds: [String]
+}
+```
+
+### Kotlin Implementation Example
+
+```kotlin
+// StoryService.kt
+class StoryService(private val apiClient: APIClient) {
+    
+    suspend fun createStory(mediaId: String, caption: String?, visibility: StoryVisibility): Story {
+        val request = StoryCreateRequest(mediaId, caption, visibility)
+        return apiClient.post("/stories", request)
+    }
+
+    suspend fun getUserStories(userId: String, limit: Int = 20, cursor: String? = null): List<Story> {
+        val params = mutableMapOf("limit" to limit.toString())
+        cursor?.let { params["cursor"] = it }
+        return apiClient.get("/users/$userId/stories", params)
+    }
+
+    suspend fun addReaction(storyId: String, emoji: String) {
+        val request = AddReactionRequest(emoji)
+        apiClient.post("/stories/$storyId/reactions", request)
+    }
+
+    suspend fun getStoriesFeed(limit: Int = 20, cursor: String? = null): List<Story> {
+        val params = mutableMapOf("limit" to limit.toString())
+        cursor?.let { params["cursor"] = it }
+        return apiClient.get("/feed/stories", params)
+    }
+
+    suspend fun markStorySeen(storyId: String) {
+        apiClient.post("/stories/$storyId/seen", null)
+    }
+
+    suspend fun getStoryMetrics(storyId: String): StoryMetrics {
+        return apiClient.get("/stories/$storyId/metrics")
+    }
+}
+
+data class StoryCreateRequest(
+    val media_id: String,
+    val caption: String?,
+    val visibility: StoryVisibility
+)
+
+data class AddReactionRequest(
+    val emoji: String
+)
+
+enum class StoryVisibility {
+    PUBLIC, FRIENDS_ONLY, CLOSE_FRIENDS_ONLY
+}
+
+data class Story(
+    val id: String,
+    val user_id: String,
+    val media_id: String,
+    val caption: String?,
+    val created_at: String,
+    val expires_at: String,
+    val visibility: StoryVisibility,
+    val view_count: Int,
+    val reaction_count: Int,
+    val is_highlight: Boolean,
+    val highlight_name: String?
+)
+
+data class StoryReaction(
+    val id: String,
+    val story_id: String,
+    val user_id: String,
+    val emoji: String,
+    val created_at: String
+)
+
+data class StoryMetrics(
+    val view_count: Int,
+    val reaction_count: Int,
+    val reactions_by_emoji: List<List<String>>,
+    val viewer_ids: List<String>
+)
+```
+
+### UI Integration Best Practices
+
+#### Story Creation Flow
+
+1. **Media Selection**: Allow users to select photos from gallery or camera
+2. **Caption Input**: Optional text caption (max 200 characters)
+3. **Privacy Selection**: Let users choose visibility (Public/Friends/Close Friends)
+4. **Preview**: Show story preview before posting
+5. **Post**: Upload and create story
+
+#### Story Viewing Flow
+
+1. **Story Feed**: Show stories from followed users in chronological order
+2. **Story Viewer**: Full-screen story viewer with tap navigation
+3. **Reactions**: Show reaction buttons/emoji picker
+4. **View Indicators**: Show who viewed the story (for story owners)
+5. **Expiration**: Show countdown timer for remaining story lifetime
+
+#### Performance Optimization
+
+- **Prefetching**: Load next stories in background
+- **Caching**: Cache story images and metadata
+- **Lazy Loading**: Load stories progressively
+- **Image Optimization**: Use appropriate image sizes and compression
+
+#### Error Handling
+
+- **Network Errors**: Show retry options for failed loads
+- **Access Denied**: Handle private story access gracefully
+- **Story Expired**: Remove expired stories from UI
+- **Rate Limits**: Show user-friendly rate limit messages
+
+### Story Analytics Integration
+
+```swift
+// AnalyticsService.swift
+func trackStoryCreated() {
+    analytics.logEvent("story_created", parameters: [
+        "user_id": currentUserId,
+        "visibility": storyVisibility.rawValue
+    ])
+}
+
+func trackStoryViewed(storyId: String, userId: String) {
+    analytics.logEvent("story_viewed", parameters: [
+        "story_id": storyId,
+        "user_id": userId
+    ])
+}
+
+func trackStoryReactionAdded(storyId: String, emoji: String) {
+    analytics.logEvent("story_reaction_added", parameters: [
+        "story_id": storyId,
+        "emoji": emoji
+    ])
+}
+```
+
+### Security Considerations
+
+1. **Media Upload Security**:
+   - Validate image file types and sizes
+   - Use HTTPS for all media uploads
+   - Implement proper content-type validation
+
+2. **Privacy Enforcement**:
+   - Respect visibility settings in UI
+   - Hide private stories from unauthorized users
+   - Cache invalidation for access changes
+
+3. **Data Protection**:
+   - Encrypt sensitive story data
+   - Secure media cache on device
+   - Implement proper cleanup for expired stories
+
+### Testing Recommendations
+
+1. **Unit Tests**: Test service methods and view models
+2. **Integration Tests**: Test API integration and error handling
+3. **UI Tests**: Test story creation and viewing flows
+4. **Performance Tests**: Test with large story feeds
+5. **Edge Cases**: Test expired stories, access control, rate limits
+
 ## 🛡️ Mobile-Specific Security Recommendations
 
 ### 1. API Key Management
