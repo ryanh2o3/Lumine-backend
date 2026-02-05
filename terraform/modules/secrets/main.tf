@@ -95,3 +95,79 @@ resource "scaleway_secret_version" "redis_password" {
   data      = local.redis_password
   region    = var.region
 }
+
+# S3 Access Key Secret (optional)
+resource "scaleway_secret" "s3_access_key" {
+  count = var.s3_access_key != "" ? 1 : 0
+
+  name        = "${var.app_name}-s3-access-key-${var.environment}"
+  description = "S3 access key"
+  project_id  = var.project_id
+  region      = var.region
+  tags        = var.tags
+}
+
+resource "scaleway_secret_version" "s3_access_key" {
+  count = var.s3_access_key != "" ? 1 : 0
+
+  secret_id = scaleway_secret.s3_access_key[0].id
+  data      = var.s3_access_key
+  region    = var.region
+}
+
+# S3 Secret Key Secret (optional)
+resource "scaleway_secret" "s3_secret_key" {
+  count = var.s3_secret_key != "" ? 1 : 0
+
+  name        = "${var.app_name}-s3-secret-key-${var.environment}"
+  description = "S3 secret key"
+  project_id  = var.project_id
+  region      = var.region
+  tags        = var.tags
+}
+
+resource "scaleway_secret_version" "s3_secret_key" {
+  count = var.s3_secret_key != "" ? 1 : 0
+
+  secret_id = scaleway_secret.s3_secret_key[0].id
+  data      = var.s3_secret_key
+  region    = var.region
+}
+
+# SQS Access Key Secret (optional)
+resource "scaleway_secret" "sqs_access_key" {
+  count = var.sqs_access_key != "" ? 1 : 0
+
+  name        = "${var.app_name}-sqs-access-key-${var.environment}"
+  description = "SQS access key"
+  project_id  = var.project_id
+  region      = var.region
+  tags        = var.tags
+}
+
+resource "scaleway_secret_version" "sqs_access_key" {
+  count = var.sqs_access_key != "" ? 1 : 0
+
+  secret_id = scaleway_secret.sqs_access_key[0].id
+  data      = var.sqs_access_key
+  region    = var.region
+}
+
+# SQS Secret Key Secret (optional)
+resource "scaleway_secret" "sqs_secret_key" {
+  count = var.sqs_secret_key != "" ? 1 : 0
+
+  name        = "${var.app_name}-sqs-secret-key-${var.environment}"
+  description = "SQS secret key"
+  project_id  = var.project_id
+  region      = var.region
+  tags        = var.tags
+}
+
+resource "scaleway_secret_version" "sqs_secret_key" {
+  count = var.sqs_secret_key != "" ? 1 : 0
+
+  secret_id = scaleway_secret.sqs_secret_key[0].id
+  data      = var.sqs_secret_key
+  region    = var.region
+}

@@ -1,12 +1,14 @@
-# Remote state configuration for production environment
+# Remote state configuration for ciel environment
 # Create the bucket manually before running terraform init
 
 terraform {
   backend "s3" {
     bucket   = "ciel-terraform-state"
-    key      = "prod/terraform.tfstate"
+    key      = "ciel/terraform.tfstate"
     region   = "fr-par"
     endpoint = "https://s3.fr-par.scw.cloud"
+    encrypt  = true
+    use_lockfile = true
 
     # Skip validations since we're using Scaleway S3-compatible endpoint
     skip_credentials_validation = true

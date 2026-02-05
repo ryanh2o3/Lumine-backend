@@ -26,12 +26,20 @@ resource "scaleway_rdb_instance" "main" {
   }
 
   tags = concat(var.tags, ["environment:${var.environment}"])
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Database
 resource "scaleway_rdb_database" "main" {
   instance_id = scaleway_rdb_instance.main.id
   name        = var.db_name
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Application User
@@ -47,7 +55,7 @@ resource "scaleway_rdb_privilege" "app" {
   instance_id   = scaleway_rdb_instance.main.id
   database_name = scaleway_rdb_database.main.name
   user_name     = scaleway_rdb_user.app.name
-  permission    = "all"
+  permission    = var.db_user_permission
 
   depends_on = [
     scaleway_rdb_database.main,

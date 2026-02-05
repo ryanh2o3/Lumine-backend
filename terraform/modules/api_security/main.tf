@@ -20,6 +20,28 @@ resource "scaleway_lb" "api_gateway" {
   tags = concat(var.tags, ["environment:${var.environment}", "role:api-gateway"])
 }
 
+# Basic L7 ACL protections (optional)
+locals {
+  api_gateway_frontend_id = var.enable_api_gateway ? (
+    length(scaleway_lb_frontend.https) > 0 ? scaleway_lb_frontend.https[0].id : scaleway_lb_frontend.http[0].id
+  ) : null
+}
+
+resource "scaleway_lb_acl" "blocked_ips" {
+  count = var.enable_api_gateway && var.enable_basic_waf ? length(var.blocked_ip_ranges) : 0
+
+  frontend_id = local.api_gateway_frontend_id
+  name        = "${var.app_name}-block-${count.index}-${var.environment}"
+
+  action {
+    type = "deny"
+  }
+
+  match {
+    ip_subnet = var.blocked_ip_ranges[count.index]
+  }
+}
+
 # API Gateway IP
 resource "scaleway_lb_ip" "api_gateway" {
   count = var.enable_api_gateway ? 1 : 0
@@ -32,8 +54,8 @@ resource "scaleway_lb_backend" "api_gateway" {
 
   lb_id            = scaleway_lb.api_gateway[0].id
   name             = "${var.app_name}-gateway-backend-${var.environment}"
-  forward_protocol = "http"
-  forward_port     = 8080
+  forward_protocol = "https"
+  forward_port     = 8443
 
   health_check_http {
     uri    = var.health_check_path
@@ -57,6 +79,7 @@ resource "scaleway_lb_frontend" "http" {
   backend_id   = scaleway_lb_backend.api_gateway[0].id
   name         = "${var.app_name}-http-gateway-${var.environment}"
   inbound_port = 80
+  redirect_http_to_https = true
 }
 
 # API Gateway Frontend - HTTPS

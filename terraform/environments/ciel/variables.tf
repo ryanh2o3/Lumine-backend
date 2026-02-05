@@ -18,12 +18,6 @@ variable "region" {
   default     = "fr-par"
 }
 
-# Scaleway credentials
-variable "scw_secret_key" {
-  description = "Scaleway secret key for container registry authentication"
-  type        = string
-  sensitive   = true
-}
 
 # Database credentials
 variable "db_admin_password" {
@@ -70,7 +64,18 @@ variable "admin_token" {
 variable "container_image_tag" {
   description = "Docker image tag to deploy"
   type        = string
-  default     = "latest"
+  default     = "stable"
+}
+
+variable "ssh_allowed_cidrs" {
+  description = "CIDR blocks allowed to SSH when bastion is enabled"
+  type        = list(string)
+  default     = []
+}
+
+variable "alert_contact_emails" {
+  description = "Alert contact email addresses"
+  type        = list(string)
 }
 
 # DNS Configuration

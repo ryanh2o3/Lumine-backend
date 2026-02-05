@@ -4,6 +4,7 @@ use serde::Serialize;
 use sqlx::Row;
 use std::time::Duration;
 use uuid::Uuid;
+use url::Url;
 
 use crate::domain::media::Media;
 use crate::infra::{db::Db, queue::QueueClient, storage::ObjectStorage};
@@ -87,12 +88,12 @@ impl MediaService {
             .collect();
 
         let mut upload_url = presigned.uri().to_string();
-        tracing::debug!("Original presigned URL: {}", upload_url);
 
-        // Replace internal endpoint (localstack:4566) with public endpoint (localhost:4566)
         if let Some(ref public_endpoint) = self.s3_public_endpoint {
-            upload_url = upload_url.replace("localstack:4566", public_endpoint);
-            tracing::debug!("Converted presigned URL: {}", upload_url);
+            match rewrite_presigned_url(&upload_url, public_endpoint) {
+                Ok(rewritten) => upload_url = rewritten,
+                Err(err) => tracing::warn!(error = ?err, "failed to rewrite presigned upload URL"),
+            }
         }
 
         Ok(UploadIntent {
@@ -190,13 +191,118 @@ impl MediaService {
                     
                     let mut url = presigned.uri().to_string();
                     if let Some(ref public_endpoint) = self.s3_public_endpoint {
-                        url = url.replace("localstack:4566", public_endpoint);
+                        if let Ok(rewritten) = rewrite_presigned_url(&url, public_endpoint) {
+                            url = rewritten;
+                        }
                     }
                     *url_field = Some(url);
                 }
 
                 Some(media)
             },
+            None => None,
+        };
+
+        Ok(media)
+    }
+
+    pub async fn get_media_for_user(
+        &self,
+        media_id: Uuid,
+        viewer_id: Uuid,
+    ) -> Result<Option<Media>> {
+        let now = time::OffsetDateTime::now_utc();
+        let row = sqlx::query(
+            "SELECT m.id, m.owner_id, m.original_key, m.thumb_key, m.medium_key, \
+                    m.width, m.height, m.bytes, m.created_at \
+             FROM media m \
+             WHERE m.id = $1 \
+               AND (m.owner_id = $2 \
+                    OR EXISTS ( \
+                        SELECT 1 FROM posts p \
+                        WHERE p.media_id = m.id \
+                          AND (p.visibility = 'public' \
+                               OR p.owner_id = $2 \
+                               OR (p.visibility = 'followers_only' AND EXISTS ( \
+                                   SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = p.owner_id \
+                               ))) \
+                          AND NOT EXISTS ( \
+                              SELECT 1 FROM blocks \
+                              WHERE (blocker_id = p.owner_id AND blocked_id = $2) \
+                                 OR (blocker_id = $2 AND blocked_id = p.owner_id) \
+                          ) \
+                    ) \
+                    OR EXISTS ( \
+                        SELECT 1 FROM stories s \
+                        WHERE s.media_id = m.id \
+                          AND s.expires_at > $3 \
+                          AND (s.visibility = 'public' \
+                               OR s.user_id = $2 \
+                               OR ((s.visibility = 'friends_only' OR s.visibility = 'close_friends_only') \
+                                   AND EXISTS (SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = s.user_id) \
+                                   AND EXISTS (SELECT 1 FROM follows WHERE follower_id = s.user_id AND followee_id = $2))) \
+                          AND NOT EXISTS ( \
+                              SELECT 1 FROM blocks \
+                              WHERE (blocker_id = s.user_id AND blocked_id = $2) \
+                                 OR (blocker_id = $2 AND blocked_id = s.user_id) \
+                          ) \
+                    ))",
+        )
+        .bind(media_id)
+        .bind(viewer_id)
+        .bind(now)
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        let media = match row {
+            Some(row) => {
+                let original_key: String = row.get("original_key");
+                let thumb_key: String = row.get("thumb_key");
+                let medium_key: String = row.get("medium_key");
+
+                let mut media = Media {
+                    id: row.get("id"),
+                    owner_id: row.get("owner_id"),
+                    original_key: original_key.clone(),
+                    thumb_key: thumb_key.clone(),
+                    medium_key: medium_key.clone(),
+                    width: row.get("width"),
+                    height: row.get("height"),
+                    bytes: row.get("bytes"),
+                    created_at: row.get("created_at"),
+                    thumb_url: None,
+                    medium_url: None,
+                    original_url: None,
+                };
+
+                let presign_config = PresigningConfig::expires_in(Duration::from_secs(3600))?;
+                let keys = [
+                    (&original_key, &mut media.original_url),
+                    (&thumb_key, &mut media.thumb_url),
+                    (&medium_key, &mut media.medium_url),
+                ];
+
+                for (key, url_field) in keys {
+                    let presigned = self
+                        .storage
+                        .client()
+                        .get_object()
+                        .bucket(self.storage.bucket())
+                        .key(key.clone())
+                        .presigned(presign_config.clone())
+                        .await?;
+
+                    let mut url = presigned.uri().to_string();
+                    if let Some(ref public_endpoint) = self.s3_public_endpoint {
+                        if let Ok(rewritten) = rewrite_presigned_url(&url, public_endpoint) {
+                            url = rewritten;
+                        }
+                    }
+                    *url_field = Some(url);
+                }
+
+                Some(media)
+            }
             None => None,
         };
 
@@ -273,3 +379,18 @@ fn extension_from_content_type(content_type: &str) -> Result<&'static str> {
     }
 }
 
+fn rewrite_presigned_url(original: &str, public_endpoint: &str) -> Result<String> {
+    let mut original_url = Url::parse(original)?;
+    let public_url = Url::parse(public_endpoint)
+        .or_else(|_| Url::parse(&format!("http://{}", public_endpoint)))?;
+
+    original_url
+        .set_scheme(public_url.scheme())
+        .map_err(|_| anyhow!("invalid scheme for public endpoint"))?;
+    original_url
+        .set_host(public_url.host_str())
+        .map_err(|_| anyhow!("invalid host for public endpoint"))?;
+    original_url.set_port(public_url.port()).ok();
+
+    Ok(original_url.to_string())
+}

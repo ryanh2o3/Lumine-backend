@@ -6,6 +6,9 @@ packages:
   - ca-certificates
   - curl
   - gnupg
+  - jq
+  - python3
+  - unattended-upgrades
 
 write_files:
   - path: /etc/docker/daemon.json
@@ -18,8 +21,52 @@ write_files:
         }
       }
 
-  - path: /opt/ciel/.env
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
     content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  - path: /opt/ciel/fetch-secrets.sh
+    permissions: '0700'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      export SCW_ACCESS_KEY="${scw_access_key}"
+      export SCW_SECRET_KEY="${scw_secret_key}"
+      export SCW_DEFAULT_REGION="${scw_region}"
+      export SCW_DEFAULT_ZONE="${scw_zone}"
+
+      fetch_secret() {
+        scw secret version access "secret-id=$1" --output json | jq -r .data
+      }
+
+      urlencode() {
+        python3 - <<'PY' "$1"
+import sys
+import urllib.parse
+print(urllib.parse.quote(sys.argv[1]))
+PY
+      }
+
+      db_password="$(fetch_secret "${db_password_secret_id}")"
+      redis_password="$(fetch_secret "${redis_password_secret_id}")"
+      s3_access_key="$(fetch_secret "${s3_access_key_secret_id}")"
+      s3_secret_key="$(fetch_secret "${s3_secret_key_secret_id}")"
+      sqs_access_key="$(fetch_secret "${sqs_access_key_secret_id}")"
+      sqs_secret_key="$(fetch_secret "${sqs_secret_key_secret_id}")"
+
+      db_password_enc="$(urlencode "$db_password")"
+      redis_password_enc="$(urlencode "$redis_password")"
+
+      database_url="postgres://${db_user}:${db_password_enc}@${db_host}:${db_port}/${db_name}?sslmode=require"
+      redis_scheme="redis"
+      if [ "${redis_use_tls}" = "true" ]; then
+        redis_scheme="rediss"
+      fi
+      redis_url="${redis_scheme}://:${redis_password_enc}@${redis_host}:${redis_port}"
+
+      cat > /opt/ciel/.env <<EOF
       APP_MODE=worker
       DATABASE_URL=${database_url}
       REDIS_URL=${redis_url}
@@ -35,11 +82,12 @@ write_files:
       SQS_ACCESS_KEY=${sqs_access_key}
       SQS_SECRET_KEY=${sqs_secret_key}
       RUST_LOG=${rust_log}
-    permissions: '0600'
+      EOF
+
+      chmod 600 /opt/ciel/.env
 
   - path: /opt/ciel/docker-compose.yml
     content: |
-      version: '3.8'
       services:
         worker:
           image: ${registry_endpoint}/${app_name}:${image_tag}
@@ -51,6 +99,12 @@ write_files:
             options:
               max-size: "10m"
               max-file: "3"
+          healthcheck:
+            test: ["CMD-SHELL", "pgrep -f 'ciel' >/dev/null"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
 
 runcmd:
   # Install Docker
@@ -61,8 +115,19 @@ runcmd:
   - apt-get update
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-  # Login to Scaleway Container Registry (uses SCW secret key as password)
-  - echo "${scw_secret_key}" | docker login ${registry_endpoint} -u nologin --password-stdin
+  # Install Scaleway CLI
+  - curl -fsSL https://github.com/scaleway/scaleway-cli/releases/latest/download/scaleway-cli-linux-amd64 -o /usr/local/bin/scw
+  - chmod +x /usr/local/bin/scw
+
+  # Configure unattended upgrades
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+  - systemctl enable unattended-upgrades
+
+  # Fetch secrets and write environment file
+  - /opt/ciel/fetch-secrets.sh
+
+  # Login to Scaleway Container Registry using scoped IAM key
+  - echo "${scw_secret_key}" | docker login ${registry_endpoint} -u ${scw_access_key} --password-stdin
 
   # Pull and start the application
   - cd /opt/ciel && docker compose pull

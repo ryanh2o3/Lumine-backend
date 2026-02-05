@@ -62,7 +62,7 @@ variable "managed_redis_version" {
 variable "managed_redis_cluster_size" {
   description = "Number of nodes in managed Redis cluster"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "managed_redis_tls_enabled" {

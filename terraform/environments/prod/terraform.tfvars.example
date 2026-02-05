@@ -5,9 +5,6 @@
 # Scaleway project ID
 project_id = "your-scaleway-project-id"
 
-# Scaleway secret key (for container registry authentication)
-scw_secret_key = "your-scaleway-secret-key"
-
 # Database credentials (generate secure passwords)
 db_admin_password = "secure-admin-password-min-16-chars"
 db_user_password  = "secure-user-password-min-16-chars"
@@ -23,11 +20,17 @@ paseto_refresh_key = "base64-encoded-32-byte-key"
 # admin_token = "secure-admin-token"
 
 # Container image tag (set via CI/CD or manually)
-container_image_tag = "latest"
+container_image_tag = "stable"
+
+# Alert contact emails
+alert_contact_emails = ["ops@example.com"]
 
 # DNS Configuration
 domain_name = "ciel-social.eu"
 enable_dns  = true
+
+# SSH access (only used if bastion is enabled)
+ssh_allowed_cidrs = []
 
 # API Security Configuration (optional)
 # enable_ip_restrictions = false

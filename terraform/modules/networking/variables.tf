@@ -38,10 +38,28 @@ variable "lb_type" {
   default     = "LB-S"
 }
 
+variable "enable_basic_waf" {
+  description = "Enable basic L7 ACL protections on the load balancer"
+  type        = bool
+  default     = true
+}
+
+variable "blocked_ip_ranges" {
+  description = "CIDR ranges to block at the load balancer (basic WAF/DDoS mitigation)"
+  type        = list(string)
+  default     = []
+}
+
 variable "enable_bastion" {
   description = "Enable bastion host for SSH access"
   type        = bool
   default     = false
+}
+
+variable "ssh_allowed_cidrs" {
+  description = "CIDR blocks allowed to SSH when bastion is enabled"
+  type        = list(string)
+  default     = []
 }
 
 variable "bastion_instance_type" {

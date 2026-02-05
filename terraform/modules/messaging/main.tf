@@ -16,7 +16,7 @@ resource "scaleway_mnq_sqs_credentials" "main" {
   name       = "${var.app_name}-sqs-${var.environment}"
 
   permissions {
-    can_manage  = true
+    can_manage  = false
     can_receive = true
     can_publish = true
   }
@@ -55,6 +55,11 @@ resource "scaleway_mnq_sqs_queue" "main" {
   message_retention_seconds   = var.message_retention_seconds
   visibility_timeout_seconds  = var.visibility_timeout
   receive_wait_time_seconds   = var.receive_wait_time
+
+  redrive_policy = var.enable_dlq ? jsonencode({
+    deadLetterTargetArn = scaleway_mnq_sqs_queue.dlq[0].arn
+    maxReceiveCount     = var.dlq_max_receive_count
+  }) : null
 
   # Content-based deduplication is not supported by Scaleway MNQ
   # but FIFO queues are also not supported, so this is fine

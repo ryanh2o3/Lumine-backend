@@ -48,6 +48,7 @@ module "networking" {
   private_network_cidr  = "10.0.3.0/24"
   lb_type               = "LB-GP-S"
   ssl_certificate_ids   = var.enable_dns ? module.dns[0].ssl_certificate_ids : []
+  ssh_allowed_cidrs     = var.ssh_allowed_cidrs
 }
 
 # Database Module
@@ -143,6 +144,14 @@ module "secrets" {
   paseto_access_key  = var.paseto_access_key
   paseto_refresh_key = var.paseto_refresh_key
   admin_token        = var.admin_token
+  generate_db_password   = false
+  generate_redis_password = false
+  db_password        = var.db_user_password
+  redis_password     = var.redis_password
+  s3_access_key      = module.storage.s3_access_key
+  s3_secret_key      = module.storage.s3_secret_key
+  sqs_access_key     = module.messaging.sqs_access_key
+  sqs_secret_key     = module.messaging.sqs_secret_key
 }
 
 # Compute Module
@@ -158,9 +167,9 @@ module "compute" {
 
   # Production-specific settings - multiple instances for HA
   api_instance_count       = 2
-  api_instance_type        = "DEV1-M"
+  api_instance_type        = "GP1-M"
   worker_instance_count    = 2
-  worker_instance_type     = "DEV1-S"
+  worker_instance_type     = "GP1-S"
 
   # Use production container image with version tag
   container_image_tag      = var.container_image_tag
@@ -170,27 +179,31 @@ module "compute" {
   api_security_group_id    = module.networking.api_security_group_id
   worker_security_group_id = module.networking.worker_security_group_id
   load_balancer_backend_id = module.networking.load_balancer_backend_id
-
-  # Scaleway credentials for registry auth
-  scw_secret_key           = var.scw_secret_key
-
+  
   # Application configuration from other modules
-  database_url             = module.database.database_url
-  redis_url                = module.cache.redis_url
+  db_host                  = module.database.private_endpoint
+  db_port                  = module.database.endpoint_port
+  db_name                  = module.database.database_name
+  db_user                  = module.database.database_user
+  db_password_secret_id    = module.secrets.db_password_secret_id
+  redis_host               = module.cache.redis_host
+  redis_port               = module.cache.redis_port
+  redis_use_tls            = module.cache.redis_use_tls
+  redis_password_secret_id = module.secrets.redis_password_secret_id
   s3_endpoint              = module.storage.s3_endpoint
   s3_region                = var.region
   s3_bucket                = module.storage.bucket_name
   s3_public_endpoint       = module.storage.s3_public_endpoint
-  s3_access_key            = module.storage.s3_access_key
-  s3_secret_key            = module.storage.s3_secret_key
+  s3_access_key_secret_id  = module.secrets.s3_access_key_secret_id
+  s3_secret_key_secret_id  = module.secrets.s3_secret_key_secret_id
   queue_endpoint           = module.messaging.queue_endpoint
   queue_region             = var.region
   queue_name               = module.messaging.queue_name
-  sqs_access_key           = module.messaging.sqs_access_key
-  sqs_secret_key           = module.messaging.sqs_secret_key
-  paseto_access_key        = var.paseto_access_key
-  paseto_refresh_key       = var.paseto_refresh_key
-  admin_token              = var.admin_token != null ? var.admin_token : ""
+  sqs_access_key_secret_id = module.secrets.sqs_access_key_secret_id
+  sqs_secret_key_secret_id = module.secrets.sqs_secret_key_secret_id
+  paseto_access_key_secret_id  = module.secrets.paseto_access_key_secret_id
+  paseto_refresh_key_secret_id = module.secrets.paseto_refresh_key_secret_id
+  admin_token_secret_id        = module.secrets.admin_token_secret_id != null ? module.secrets.admin_token_secret_id : ""
   rust_log                 = "info"
 }
 
@@ -206,7 +219,8 @@ module "observability" {
   tags          = local.tags
 
   # Production-specific settings
-  enable_alerts = true
+  enable_alerts       = true
+  alert_contact_emails = var.alert_contact_emails
 }
 
 # DNS Module

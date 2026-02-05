@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -12,6 +12,7 @@ pub struct TrustService {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct TrustScore {
     pub user_id: Uuid,
     pub trust_level: TrustLevel,
@@ -34,6 +35,7 @@ impl TrustService {
     }
 
     /// Initialize trust score for new user
+    #[allow(dead_code)]
     pub async fn initialize_user(&self, user_id: Uuid) -> Result<()> {
         sqlx::query(
             "INSERT INTO user_trust_scores \
@@ -43,6 +45,24 @@ impl TrustService {
         )
         .bind(user_id)
         .execute(self.db.pool())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn initialize_user_with_tx(
+        &self,
+        user_id: Uuid,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO user_trust_scores \
+             (user_id, trust_level, trust_points, account_age_days) \
+             VALUES ($1, 0, 0, 0) \
+             ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .execute(&mut **tx)
         .await?;
 
         Ok(())
@@ -85,6 +105,7 @@ impl TrustService {
     }
 
     /// Update trust score based on activity
+    #[allow(dead_code)]
     pub async fn record_activity(&self, user_id: Uuid, activity_type: &str) -> Result<()> {
         let (points_delta, field_to_increment): (i32, Option<&str>) = match activity_type {
             "post_created" => (5, Some("posts_count")),
@@ -126,6 +147,7 @@ impl TrustService {
     }
 
     /// Recalculate trust level based on metrics
+    #[allow(dead_code)]
     pub async fn recalculate_trust_level(&self, user_id: Uuid) -> Result<()> {
         let row = sqlx::query(
             "SELECT account_age_days, posts_count, trust_points, flags_received, strikes \
@@ -184,6 +206,7 @@ impl TrustService {
     }
 
     /// Add strike to user (3 strikes = temporary ban)
+    #[allow(dead_code)]
     pub async fn add_strike(&self, user_id: Uuid, reason: &str) -> Result<i32> {
         let result = sqlx::query(
             "UPDATE user_trust_scores \
@@ -238,6 +261,7 @@ impl TrustService {
     }
 
     /// Record a flag/report against a user
+    #[allow(dead_code)]
     pub async fn record_flag(&self, user_id: Uuid) -> Result<()> {
         sqlx::query(
             "UPDATE user_trust_scores \
@@ -266,6 +290,7 @@ impl TrustService {
     }
 
     /// Manually set trust level (admin action)
+    #[allow(dead_code)]
     pub async fn set_trust_level(&self, user_id: Uuid, level: TrustLevel) -> Result<()> {
         sqlx::query(
             "UPDATE user_trust_scores \
@@ -281,6 +306,7 @@ impl TrustService {
     }
 
     /// Get trust level statistics (for admin dashboard)
+    #[allow(dead_code)]
     pub async fn get_trust_level_stats(&self) -> Result<Vec<(TrustLevel, i64)>> {
         let rows = sqlx::query(
             "SELECT trust_level, COUNT(*) as count \

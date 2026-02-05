@@ -38,6 +38,11 @@ impl RateLimiter {
             "like" => vec![(limits.likes_per_hour, RateWindow::Hour)],
             "comment" => vec![(limits.comments_per_hour, RateWindow::Hour)],
             "login" => vec![(limits.login_attempts_per_hour, RateWindow::Hour)],
+            "feed" => vec![(limits.feed_requests_per_hour, RateWindow::Hour)],
+            "notifications" => vec![(limits.notifications_per_hour, RateWindow::Hour)],
+            "search" => vec![(limits.search_requests_per_hour, RateWindow::Hour)],
+            "media" => vec![(limits.media_requests_per_hour, RateWindow::Hour)],
+            "moderation" => vec![(limits.moderation_actions_per_hour, RateWindow::Hour)],
             _ => return Ok(false), // Unknown action, don't rate limit
         };
 
@@ -82,6 +87,7 @@ impl RateLimiter {
             "follow" => vec![RateWindow::Hour, RateWindow::Day],
             "unfollow" => vec![RateWindow::Day],
             "like" | "comment" | "login" => vec![RateWindow::Hour],
+            "feed" | "notifications" | "search" | "media" | "moderation" => vec![RateWindow::Hour],
             _ => return Ok(()), // Unknown action, skip
         };
 

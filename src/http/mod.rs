@@ -11,7 +11,7 @@ mod handlers;
 pub mod middleware;
 mod routes;
 
-pub use auth::AuthUser;
+pub use auth::{AdminToken, AuthUser};
 pub use error::AppError;
 
 pub fn router(state: AppState) -> Router {
@@ -32,6 +32,10 @@ pub fn router(state: AppState) -> Router {
                     state.clone(),
                     middleware::rate_limit::rate_limit_middleware,
                 ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
         )
         // Posts, social, engagement routes with rate limiting
         .merge(
@@ -40,12 +44,66 @@ pub fn router(state: AppState) -> Router {
                     state.clone(),
                     middleware::rate_limit::rate_limit_middleware,
                 ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
         )
-        .merge(routes::feed())
-        .merge(routes::media())
-        .merge(routes::notifications())
-        .merge(routes::moderation())
-        .merge(routes::search())
+        .merge(
+            routes::feed()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit::rate_limit_middleware,
+                ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
+        )
+        .merge(
+            routes::media()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit::rate_limit_middleware,
+                ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
+        )
+        .merge(
+            routes::notifications()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit::rate_limit_middleware,
+                ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
+        )
+        .merge(
+            routes::moderation()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit::rate_limit_middleware,
+                ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
+        )
+        .merge(
+            routes::search()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit::rate_limit_middleware,
+                ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
+        )
         // Stories with rate limiting
         .merge(
             routes::stories()
@@ -53,9 +111,18 @@ pub fn router(state: AppState) -> Router {
                     state.clone(),
                     middleware::rate_limit::rate_limit_middleware,
                 ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
         )
         // Add safety routes
-        .merge(routes::safety())
+        .merge(
+            routes::safety()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::ban::ban_check_middleware,
+                ))
+        )
         .with_state(state)
 }
-

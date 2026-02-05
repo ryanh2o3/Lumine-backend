@@ -393,7 +393,7 @@ Dependencies flow through Axum's `State` extractor to handlers, then to services
 - Cursor-based pagination (good for large datasets)
 - Indexes on high-traffic queries
 
-> **🎯 WITH 2000 FOLLOWER LIMIT:** Database scalability improves dramatically. The bounded follow count makes query performance predictable and eliminates the primary bottleneck that would prevent scaling past 10K users.
+> **🎯 WITH 5000 FOLLOWER LIMIT:** Database scalability improves dramatically. The bounded follow count makes query performance predictable and eliminates the primary bottleneck that would prevent scaling past 10K users.
 
 **Bottlenecks (Updated with 2000 Limit):**
 
@@ -427,6 +427,7 @@ Dependencies flow through Axum's `State` extractor to handlers, then to services
    - Uses `ILIKE` for text search (slow on large datasets)
    - No full-text search indexes (GIN indexes with tsvector)
    - Will not scale beyond ~100K users/posts
+   - **Short-term option:** enable `pg_trgm` and add GIN indexes on `users.handle`, `users.display_name`, and `posts.caption` for faster `ILIKE '%term%'`
    - **Recommendation:** Implement PostgreSQL full-text search or Elasticsearch
 
 3. **Social Graph Queries** (src/app/social.rs:235-245)
@@ -1365,7 +1366,7 @@ app.layer(prometheus_layer);
 3. ⭐ **Good security practices** - PASETO, Argon2, token rotation
 4. ⭐ **Proper async design** - Non-blocking I/O throughout
 5. ⭐ **Production-ready infra** - S3, SQS, Redis, PostgreSQL
-6. ⭐ **Smart business constraints** - 2000 follower limit enables predictable scaling
+6. ⭐ **Smart business constraints** - 5000 follower limit enables predictable scaling
 
 ### Critical Improvements Needed
 1. 🔴 **Add comprehensive testing** (currently 0% coverage)
@@ -1474,7 +1475,7 @@ The bounded follow count transforms feed generation from a major bottleneck into
 3. Complete test coverage
 4. Add read replicas at 50K+ users
 
-**The 2000 limit changes the verdict from "needs major rework at 10K users" to "can scale to 250K users with incremental improvements."** This is exactly the kind of smart product constraint that enables efficient scaling without premature optimization.
+**The 5000 limit changes the verdict from "needs major rework at 10K users" to "can scale to 250K users with incremental improvements."** This is exactly the kind of smart product constraint that enables efficient scaling without premature optimization.
 
 **Final Grade: A (92/100)** - Production-ready for startups planning to scale to 250K users.
 

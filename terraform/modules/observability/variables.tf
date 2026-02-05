@@ -29,7 +29,7 @@ variable "enable_cockpit" {
 variable "grafana_user_role" {
   description = "Grafana user role (viewer, editor)"
   type        = string
-  default     = "editor"
+  default     = "viewer"
 }
 
 variable "enable_alerts" {

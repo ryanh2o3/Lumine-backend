@@ -63,7 +63,7 @@ variable "worker_instance_type" {
 variable "container_image_tag" {
   description = "Docker image tag to deploy"
   type        = string
-  default     = "latest"
+  default     = "stable"
 }
 
 # Network
@@ -89,16 +89,52 @@ variable "load_balancer_backend_id" {
 }
 
 # Environment Variables
-variable "database_url" {
-  description = "Database connection URL"
+variable "db_host" {
+  description = "Database host (private endpoint)"
   type        = string
-  sensitive   = true
 }
 
-variable "redis_url" {
-  description = "Redis connection URL"
+variable "db_port" {
+  description = "Database port"
+  type        = number
+  default     = 5432
+}
+
+variable "db_name" {
+  description = "Database name"
   type        = string
-  sensitive   = true
+}
+
+variable "db_user" {
+  description = "Database user"
+  type        = string
+}
+
+variable "db_password_secret_id" {
+  description = "Secret Manager ID for database password"
+  type        = string
+}
+
+variable "redis_host" {
+  description = "Redis host"
+  type        = string
+}
+
+variable "redis_port" {
+  description = "Redis port"
+  type        = number
+  default     = 6379
+}
+
+variable "redis_use_tls" {
+  description = "Use TLS for Redis connections"
+  type        = bool
+  default     = false
+}
+
+variable "redis_password_secret_id" {
+  description = "Secret Manager ID for Redis password"
+  type        = string
 }
 
 variable "s3_endpoint" {
@@ -122,16 +158,14 @@ variable "s3_public_endpoint" {
   type        = string
 }
 
-variable "s3_access_key" {
-  description = "S3 access key"
+variable "s3_access_key_secret_id" {
+  description = "Secret Manager ID for S3 access key"
   type        = string
-  sensitive   = true
 }
 
-variable "s3_secret_key" {
-  description = "S3 secret key"
+variable "s3_secret_key_secret_id" {
+  description = "Secret Manager ID for S3 secret key"
   type        = string
-  sensitive   = true
 }
 
 variable "queue_endpoint" {
@@ -150,34 +184,29 @@ variable "queue_name" {
   type        = string
 }
 
-variable "sqs_access_key" {
-  description = "SQS access key"
+variable "sqs_access_key_secret_id" {
+  description = "Secret Manager ID for SQS access key"
   type        = string
-  sensitive   = true
 }
 
-variable "sqs_secret_key" {
-  description = "SQS secret key"
+variable "sqs_secret_key_secret_id" {
+  description = "Secret Manager ID for SQS secret key"
   type        = string
-  sensitive   = true
 }
 
-variable "paseto_access_key" {
-  description = "PASETO access token key (base64 encoded 32 bytes)"
+variable "paseto_access_key_secret_id" {
+  description = "Secret Manager ID for PASETO access key"
   type        = string
-  sensitive   = true
 }
 
-variable "paseto_refresh_key" {
-  description = "PASETO refresh token key (base64 encoded 32 bytes)"
+variable "paseto_refresh_key_secret_id" {
+  description = "Secret Manager ID for PASETO refresh key"
   type        = string
-  sensitive   = true
 }
 
-variable "admin_token" {
-  description = "Admin API token (optional)"
+variable "admin_token_secret_id" {
+  description = "Secret Manager ID for admin token (optional)"
   type        = string
-  sensitive   = true
   default     = ""
 }
 
@@ -199,8 +228,8 @@ variable "tags" {
   default     = []
 }
 
-variable "scw_secret_key" {
-  description = "Scaleway secret key for container registry authentication"
+variable "runtime_iam_application_name" {
+  description = "IAM application name for runtime instance access"
   type        = string
-  sensitive   = true
+  default     = "ciel-runtime"
 }

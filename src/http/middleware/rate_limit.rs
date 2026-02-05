@@ -28,6 +28,12 @@ pub async fn rate_limit_middleware(
         (p, "POST") if p.contains("/unfollow") => Some("unfollow"),
         (p, "POST") if p.contains("/like") => Some("like"),
         (p, "POST") if p.contains("/comment") => Some("comment"),
+        ("/feed", "GET") | ("/feed/stories", "GET") => Some("feed"),
+        ("/feed/refresh", "POST") => Some("feed"),
+        (p, _) if p.starts_with("/notifications") => Some("notifications"),
+        (p, _) if p.starts_with("/search/") => Some("search"),
+        (p, _) if p.starts_with("/media") => Some("media"),
+        (p, _) if p.starts_with("/moderation/") => Some("moderation"),
         _ => None,
     };
 
@@ -46,13 +52,6 @@ pub async fn rate_limit_middleware(
             let trust_level = trust_score
                 .map(|s| s.trust_level)
                 .unwrap_or(TrustLevel::New);
-
-            // Check if user is banned
-            if trust_service.is_banned(auth_user.user_id).await.unwrap_or(false) {
-                return Err(AppError::forbidden(
-                    "Your account has been temporarily suspended",
-                ));
-            }
 
             // Check rate limit
             let rate_limiter = RateLimiter::new(state.cache.clone());

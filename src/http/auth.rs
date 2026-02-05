@@ -1,5 +1,6 @@
 use axum::extract::FromRequestParts;
 use axum::http::header;
+use axum::http::HeaderName;
 use axum::http::request::Parts;
 
 use crate::app::auth::AuthService;
@@ -10,6 +11,11 @@ use crate::AppState;
 pub struct AuthUser {
     pub user_id: uuid::Uuid,
 }
+
+#[derive(Debug, Clone)]
+pub struct AdminToken;
+
+const ADMIN_TOKEN_HEADER: HeaderName = HeaderName::from_static("x-admin-token");
 
 #[axum::async_trait]
 impl FromRequestParts<AppState> for AuthUser {
@@ -47,5 +53,32 @@ impl FromRequestParts<AppState> for AuthUser {
         Ok(AuthUser {
             user_id: session.user_id,
         })
+    }
+}
+
+#[axum::async_trait]
+impl FromRequestParts<AppState> for AdminToken {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let expected = state
+            .admin_token
+            .as_ref()
+            .ok_or_else(|| AppError::forbidden("admin token not configured"))?;
+
+        let provided = parts
+            .headers
+            .get(ADMIN_TOKEN_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| AppError::forbidden("missing admin token"))?;
+
+        if provided != expected {
+            return Err(AppError::forbidden("invalid admin token"));
+        }
+
+        Ok(AdminToken)
     }
 }

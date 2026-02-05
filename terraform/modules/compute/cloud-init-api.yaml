@@ -6,6 +6,10 @@ packages:
   - ca-certificates
   - curl
   - gnupg
+  - jq
+  - openssl
+  - python3
+  - unattended-upgrades
 
 write_files:
   - path: /etc/docker/daemon.json
@@ -18,8 +22,59 @@ write_files:
         }
       }
 
-  - path: /opt/ciel/.env
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
     content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  - path: /opt/ciel/fetch-secrets.sh
+    permissions: '0700'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      export SCW_ACCESS_KEY="${scw_access_key}"
+      export SCW_SECRET_KEY="${scw_secret_key}"
+      export SCW_DEFAULT_REGION="${scw_region}"
+      export SCW_DEFAULT_ZONE="${scw_zone}"
+
+      fetch_secret() {
+        scw secret version access "secret-id=$1" --output json | jq -r .data
+      }
+
+      urlencode() {
+        python3 - <<'PY' "$1"
+import sys
+import urllib.parse
+print(urllib.parse.quote(sys.argv[1]))
+PY
+      }
+
+      db_password="$(fetch_secret "${db_password_secret_id}")"
+      redis_password="$(fetch_secret "${redis_password_secret_id}")"
+      s3_access_key="$(fetch_secret "${s3_access_key_secret_id}")"
+      s3_secret_key="$(fetch_secret "${s3_secret_key_secret_id}")"
+      sqs_access_key="$(fetch_secret "${sqs_access_key_secret_id}")"
+      sqs_secret_key="$(fetch_secret "${sqs_secret_key_secret_id}")"
+      paseto_access_key="$(fetch_secret "${paseto_access_key_secret_id}")"
+      paseto_refresh_key="$(fetch_secret "${paseto_refresh_key_secret_id}")"
+
+      admin_token=""
+      if [ -n "${admin_token_secret_id}" ]; then
+        admin_token="$(fetch_secret "${admin_token_secret_id}")"
+      fi
+
+      db_password_enc="$(urlencode "$db_password")"
+      redis_password_enc="$(urlencode "$redis_password")"
+
+      database_url="postgres://${db_user}:${db_password_enc}@${db_host}:${db_port}/${db_name}?sslmode=require"
+      redis_scheme="redis"
+      if [ "${redis_use_tls}" = "true" ]; then
+        redis_scheme="rediss"
+      fi
+      redis_url="${redis_scheme}://:${redis_password_enc}@${redis_host}:${redis_port}"
+
+      cat > /opt/ciel/.env <<EOF
       APP_MODE=api
       HTTP_ADDR=${http_addr}
       DATABASE_URL=${database_url}
@@ -39,19 +94,18 @@ write_files:
       PASETO_REFRESH_KEY=${paseto_refresh_key}
       ADMIN_TOKEN=${admin_token}
       RUST_LOG=${rust_log}
-    permissions: '0600'
+      EOF
+
+      chmod 600 /opt/ciel/.env
 
   - path: /opt/ciel/docker-compose.yml
     content: |
-      version: '3.8'
       services:
         api:
           image: ${registry_endpoint}/${app_name}:${image_tag}
           restart: unless-stopped
           env_file:
             - .env
-          ports:
-            - "8080:8080"
           logging:
             driver: json-file
             options:
@@ -63,6 +117,34 @@ write_files:
             timeout: 10s
             retries: 3
             start_period: 40s
+        proxy:
+          image: nginx:alpine
+          restart: unless-stopped
+          ports:
+            - "8443:8443"
+          volumes:
+            - /opt/ciel/nginx.conf:/etc/nginx/nginx.conf:ro
+            - /opt/ciel/tls:/etc/nginx/tls:ro
+          depends_on:
+            - api
+
+  - path: /opt/ciel/nginx.conf
+    content: |
+      events {}
+      http {
+        server {
+          listen 8443 ssl;
+          ssl_certificate /etc/nginx/tls/cert.pem;
+          ssl_certificate_key /etc/nginx/tls/key.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          location / {
+            proxy_pass http://api:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+          }
+        }
+      }
 
 runcmd:
   # Install Docker
@@ -73,8 +155,23 @@ runcmd:
   - apt-get update
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-  # Login to Scaleway Container Registry (uses SCW secret key as password)
-  - echo "${scw_secret_key}" | docker login ${registry_endpoint} -u nologin --password-stdin
+  # Install Scaleway CLI
+  - curl -fsSL https://github.com/scaleway/scaleway-cli/releases/latest/download/scaleway-cli-linux-amd64 -o /usr/local/bin/scw
+  - chmod +x /usr/local/bin/scw
+
+  # Configure unattended upgrades
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+  - systemctl enable unattended-upgrades
+
+  # Fetch secrets and write environment file
+  - /opt/ciel/fetch-secrets.sh
+
+  # Generate internal TLS certificate for LB-to-instance encryption
+  - mkdir -p /opt/ciel/tls
+  - openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /opt/ciel/tls/key.pem -out /opt/ciel/tls/cert.pem -subj \"/CN=internal.ciel.local\"
+
+  # Login to Scaleway Container Registry using scoped IAM key
+  - echo "${scw_secret_key}" | docker login ${registry_endpoint} -u ${scw_access_key} --password-stdin
 
   # Pull and start the application
   - cd /opt/ciel && docker compose pull

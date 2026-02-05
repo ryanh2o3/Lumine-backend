@@ -83,6 +83,18 @@ variable "api_keys" {
   sensitive   = true
 }
 
+variable "enable_basic_waf" {
+  description = "Enable basic L7 ACL protections on the load balancer"
+  type        = bool
+  default     = true
+}
+
+variable "blocked_ip_ranges" {
+  description = "CIDR ranges to block at the load balancer (basic WAF/DDoS mitigation)"
+  type        = list(string)
+  default     = []
+}
+
 # Note: WAF, CORS, and rate limiting variables removed
 # These features are not supported by Scaleway LB Terraform provider
 # Implement at application level instead

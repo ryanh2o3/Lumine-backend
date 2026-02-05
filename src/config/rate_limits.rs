@@ -21,6 +21,7 @@ impl TrustLevel {
         }
     }
 
+    #[allow(dead_code)]
     pub fn as_i32(&self) -> i32 {
         *self as i32
     }
@@ -44,6 +45,15 @@ pub struct RateLimits {
 
     // Authentication
     pub login_attempts_per_hour: u32,
+
+    // Read-heavy endpoints
+    pub feed_requests_per_hour: u32,
+    pub notifications_per_hour: u32,
+    pub search_requests_per_hour: u32,
+
+    // Media & moderation
+    pub media_requests_per_hour: u32,
+    pub moderation_actions_per_hour: u32,
 }
 
 impl RateLimits {
@@ -59,6 +69,11 @@ impl RateLimits {
                 likes_per_hour: 30,
                 comments_per_hour: 10,
                 login_attempts_per_hour: 5,
+                feed_requests_per_hour: 120,
+                notifications_per_hour: 120,
+                search_requests_per_hour: 60,
+                media_requests_per_hour: 30,
+                moderation_actions_per_hour: 20,
             },
             TrustLevel::Basic => RateLimits {
                 posts_per_hour: 5,
@@ -69,6 +84,11 @@ impl RateLimits {
                 likes_per_hour: 100,
                 comments_per_hour: 30,
                 login_attempts_per_hour: 10,
+                feed_requests_per_hour: 300,
+                notifications_per_hour: 300,
+                search_requests_per_hour: 200,
+                media_requests_per_hour: 60,
+                moderation_actions_per_hour: 50,
             },
             TrustLevel::Trusted => RateLimits {
                 posts_per_hour: 20,
@@ -79,6 +99,11 @@ impl RateLimits {
                 likes_per_hour: 500,
                 comments_per_hour: 100,
                 login_attempts_per_hour: 20,
+                feed_requests_per_hour: 1000,
+                notifications_per_hour: 1000,
+                search_requests_per_hour: 600,
+                media_requests_per_hour: 200,
+                moderation_actions_per_hour: 100,
             },
             TrustLevel::Verified => RateLimits {
                 posts_per_hour: 50,
@@ -89,11 +114,17 @@ impl RateLimits {
                 likes_per_hour: 1000,
                 comments_per_hour: 200,
                 login_attempts_per_hour: 30,
+                feed_requests_per_hour: 2000,
+                notifications_per_hour: 2000,
+                search_requests_per_hour: 1200,
+                media_requests_per_hour: 400,
+                moderation_actions_per_hour: 200,
             },
         }
     }
 
     /// Get the limit for a specific action type
+    #[allow(dead_code)]
     pub fn limit_for_action(&self, action: &str, window: RateWindow) -> Option<u32> {
         match (action, window) {
             ("post", RateWindow::Hour) => Some(self.posts_per_hour),
@@ -104,6 +135,11 @@ impl RateLimits {
             ("like", RateWindow::Hour) => Some(self.likes_per_hour),
             ("comment", RateWindow::Hour) => Some(self.comments_per_hour),
             ("login", RateWindow::Hour) => Some(self.login_attempts_per_hour),
+            ("feed", RateWindow::Hour) => Some(self.feed_requests_per_hour),
+            ("notifications", RateWindow::Hour) => Some(self.notifications_per_hour),
+            ("search", RateWindow::Hour) => Some(self.search_requests_per_hour),
+            ("media", RateWindow::Hour) => Some(self.media_requests_per_hour),
+            ("moderation", RateWindow::Hour) => Some(self.moderation_actions_per_hour),
             _ => None,
         }
     }

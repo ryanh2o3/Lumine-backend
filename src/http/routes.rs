@@ -23,6 +23,8 @@ pub fn users() -> Router<AppState> {
         .route("/users/:id", get(handlers::get_user))
         .route("/users/:id", patch(handlers::update_profile))
         .route("/users/:id/posts", get(handlers::list_user_posts))
+        .route("/users/:id/stories", get(handlers::get_user_stories))
+        .route("/users/:id/highlights", get(handlers::get_user_highlights))
         .route("/users/:id/follow", post(handlers::follow_user))
         .route("/users/:id/unfollow", post(handlers::unfollow_user))
         .route("/users/:id/block", post(handlers::block_user))
@@ -123,11 +125,6 @@ pub fn stories() -> Router<AppState> {
             "/stories/:id/highlights",
             post(handlers::add_story_to_highlight),
         )
-        .route("/users/:id/stories", get(handlers::get_user_stories))
-        .route(
-            "/users/:id/highlights",
-            get(handlers::get_user_highlights),
-        )
         .route("/feed/stories", get(handlers::get_stories_feed))
 }
 
@@ -145,4 +142,3 @@ pub fn safety() -> Router<AppState> {
         .route("/invites/stats", get(handlers::get_invite_stats))
         .route("/invites/:code/revoke", post(handlers::revoke_invite))
 }
-

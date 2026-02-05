@@ -12,12 +12,15 @@ resource "scaleway_object_bucket" "media" {
   name   = local.bucket_name
   region = var.region
 
-  # CORS configuration
-  cors_rule {
-    allowed_headers = ["*"]
-    allowed_methods = var.cors_allowed_methods
-    allowed_origins = var.cors_allowed_origins
-    max_age_seconds = var.cors_max_age_seconds
+  # CORS configuration (optional)
+  dynamic "cors_rule" {
+    for_each = length(var.cors_allowed_origins) > 0 ? [1] : []
+    content {
+      allowed_headers = ["*"]
+      allowed_methods = var.cors_allowed_methods
+      allowed_origins = var.cors_allowed_origins
+      max_age_seconds = var.cors_max_age_seconds
+    }
   }
 
   # Versioning (optional)
@@ -52,6 +55,10 @@ resource "scaleway_object_bucket" "media" {
     { for tag in var.tags : split(":", tag)[0] => split(":", tag)[1] if length(split(":", tag)) == 2 },
     { environment = var.environment }
   )
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # IAM Application for S3 access

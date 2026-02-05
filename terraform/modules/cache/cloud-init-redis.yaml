@@ -4,12 +4,18 @@ package_upgrade: true
 
 packages:
   - redis-server
+  - unattended-upgrades
 
 write_files:
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
   - path: /etc/redis/redis.conf
     content: |
       # Network
-      bind 0.0.0.0
+      bind 127.0.0.1 __PRIVATE_IP__
       port 6379
       protected-mode yes
       requirepass ${redis_password}
@@ -18,9 +24,12 @@ write_files:
       maxmemory ${maxmemory_mb}mb
       maxmemory-policy ${maxmemory_policy}
 
-      # Persistence (optional, disabled for cache-only use)
-      save ""
-      appendonly no
+      # Persistence
+      save 900 1
+      save 300 10
+      save 60 10000
+      appendonly yes
+      appendfsync everysec
 
       # Logging
       loglevel notice
@@ -39,5 +48,8 @@ write_files:
     owner: redis:redis
 
 runcmd:
+  - bash -c "PRIVATE_IP=$(hostname -I | awk '{print $1}'); sed -i \"s/__PRIVATE_IP__/$PRIVATE_IP/\" /etc/redis/redis.conf"
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+  - systemctl enable unattended-upgrades
   - systemctl enable redis-server
   - systemctl restart redis-server

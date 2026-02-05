@@ -23,13 +23,13 @@ impl SearchService {
         cursor: Option<(OffsetDateTime, Uuid)>,
         limit: i64,
     ) -> Result<Vec<User>> {
-        let pattern = format!("%{}%", query);
+        let pattern = format!("%{}%", escape_like_pattern(query));
         let rows = match cursor {
             Some((created_at, user_id)) => {
                 sqlx::query(
                     "SELECT id, handle, email, display_name, bio, avatar_key, created_at \
                      FROM users \
-                     WHERE (handle ILIKE $1 OR display_name ILIKE $1) \
+                     WHERE (handle ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\') \
                        AND (created_at < $2 OR (created_at = $2 AND id < $3)) \
                      ORDER BY created_at DESC, id DESC \
                      LIMIT $4",
@@ -45,7 +45,7 @@ impl SearchService {
                 sqlx::query(
                     "SELECT id, handle, email, display_name, bio, avatar_key, created_at \
                      FROM users \
-                     WHERE handle ILIKE $1 OR display_name ILIKE $1 \
+                     WHERE handle ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\' \
                      ORDER BY created_at DESC, id DESC \
                      LIMIT $2",
                 )
@@ -78,7 +78,7 @@ impl SearchService {
         cursor: Option<(OffsetDateTime, Uuid)>,
         limit: i64,
     ) -> Result<Vec<Post>> {
-        let pattern = format!("%{}%", query);
+        let pattern = format!("%{}%", escape_like_pattern(query));
         let rows = match cursor {
             Some((created_at, post_id)) => {
                 sqlx::query(
@@ -87,7 +87,7 @@ impl SearchService {
                      FROM posts p \
                      JOIN users u ON p.owner_id = u.id \
                      WHERE p.visibility = 'public' \
-                       AND p.caption ILIKE $1 \
+                       AND p.caption ILIKE $1 ESCAPE '\\' \
                        AND (p.created_at < $2 OR (p.created_at = $2 AND p.id < $3)) \
                      ORDER BY p.created_at DESC, p.id DESC \
                      LIMIT $4",
@@ -105,7 +105,7 @@ impl SearchService {
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
                      JOIN users u ON p.owner_id = u.id \
-                     WHERE p.visibility = 'public' AND p.caption ILIKE $1 \
+                     WHERE p.visibility = 'public' AND p.caption ILIKE $1 ESCAPE '\\' \
                      ORDER BY p.created_at DESC, p.id DESC \
                      LIMIT $2",
                 )
@@ -135,4 +135,18 @@ impl SearchService {
 
         Ok(posts)
     }
+}
+
+fn escape_like_pattern(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '%' | '_' | '\\' => {
+                escaped.push('\\');
+                escaped.push(ch);
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
 }

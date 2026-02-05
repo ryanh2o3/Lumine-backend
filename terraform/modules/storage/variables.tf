@@ -29,7 +29,7 @@ variable "bucket_name" {
 variable "cors_allowed_origins" {
   description = "CORS allowed origins"
   type        = list(string)
-  default     = ["*"]
+  default     = []
 }
 
 variable "cors_allowed_methods" {
@@ -47,7 +47,7 @@ variable "cors_max_age_seconds" {
 variable "enable_versioning" {
   description = "Enable bucket versioning"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_glacier_transition" {

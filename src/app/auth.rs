@@ -11,6 +11,8 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::domain::user::User;
+use crate::app::invites::InviteService;
+use crate::app::trust::TrustService;
 use crate::infra::db::Db;
 
 #[derive(Debug, Clone)]
@@ -60,7 +62,10 @@ impl AuthService {
         bio: Option<String>,
         avatar_key: Option<String>,
         password: String,
+        invite_code: String,
     ) -> Result<User> {
+        let mut tx = self.db.pool().begin().await?;
+
         let password_hash = hash_password(&password)?;
         let row = sqlx::query(
             "INSERT INTO users (handle, email, display_name, bio, avatar_key, password_hash) \
@@ -73,10 +78,10 @@ impl AuthService {
         .bind(bio)
         .bind(avatar_key)
         .bind(password_hash)
-        .fetch_one(self.db.pool())
+        .fetch_one(&mut *tx)
         .await?;
 
-        Ok(User {
+        let user = User {
             id: row.get("id"),
             handle: row.get("handle"),
             email: row.get("email"),
@@ -84,7 +89,21 @@ impl AuthService {
             bio: row.get("bio"),
             avatar_key: row.get("avatar_key"),
             created_at: row.get("created_at"),
-        })
+        };
+
+        let trust_service = TrustService::new(self.db.clone());
+        trust_service
+            .initialize_user_with_tx(user.id, &mut tx)
+            .await?;
+
+        let invite_service = InviteService::new(self.db.clone());
+        invite_service
+            .consume_invite_with_tx(&invite_code, user.id, &mut tx)
+            .await?;
+
+        tx.commit().await?;
+
+        Ok(user)
     }
 
     pub async fn login(&self, identifier: &str, password: &str) -> Result<Option<TokenPair>> {

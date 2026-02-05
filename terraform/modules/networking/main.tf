@@ -73,17 +73,19 @@ resource "scaleway_instance_security_group" "api" {
   # Allow HTTP from load balancer
   inbound_rule {
     action   = "accept"
-    port     = 8080
+    port     = 8443
     protocol = "TCP"
+    ip_range = var.private_network_cidr
   }
 
   # Allow SSH (optional - for debugging)
   dynamic "inbound_rule" {
-    for_each = var.enable_bastion ? [1] : []
+    for_each = var.enable_bastion ? var.ssh_allowed_cidrs : []
     content {
       action   = "accept"
       port     = 22
       protocol = "TCP"
+      ip_range = inbound_rule.value
     }
   }
 
@@ -122,6 +124,7 @@ resource "scaleway_instance_security_group" "redis" {
     action   = "accept"
     port     = 6379
     protocol = "TCP"
+    ip_range = var.private_network_cidr
   }
 
   tags = concat(var.tags, ["environment:${var.environment}"])
@@ -158,8 +161,8 @@ resource "scaleway_lb_backend" "api" {
 
   lb_id            = scaleway_lb.api[0].id
   name             = "${var.app_name}-backend-${var.environment}"
-  forward_protocol = "http"
-  forward_port     = 8080
+  forward_protocol = "https"
+  forward_port     = 8443
 
   health_check_http {
     uri    = var.health_check_path
@@ -183,6 +186,7 @@ resource "scaleway_lb_frontend" "http" {
   backend_id   = scaleway_lb_backend.api[0].id
   name         = "${var.app_name}-http-${var.environment}"
   inbound_port = 80
+  redirect_http_to_https = true
 }
 
 # Load Balancer Frontend - HTTPS
@@ -194,6 +198,27 @@ resource "scaleway_lb_frontend" "https" {
   name            = "${var.app_name}-https-${var.environment}"
   inbound_port    = 443
   certificate_ids = var.ssl_certificate_ids
+}
+
+locals {
+  lb_frontend_id = var.enable_load_balancer ? (
+    length(scaleway_lb_frontend.https) > 0 ? scaleway_lb_frontend.https[0].id : scaleway_lb_frontend.http[0].id
+  ) : null
+}
+
+resource "scaleway_lb_acl" "blocked_ips" {
+  count = var.enable_load_balancer && var.enable_basic_waf ? length(var.blocked_ip_ranges) : 0
+
+  frontend_id = local.lb_frontend_id
+  name        = "${var.app_name}-block-${count.index}-${var.environment}"
+
+  action {
+    type = "deny"
+  }
+
+  match {
+    ip_subnet = var.blocked_ip_ranges[count.index]
+  }
 }
 
 # Bastion host (optional)

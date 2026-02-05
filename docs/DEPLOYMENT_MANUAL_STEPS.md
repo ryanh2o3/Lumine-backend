@@ -53,6 +53,8 @@ scw account project create name=ciel-production
 - [ ] Save the **Access Key** and **Secret Key** securely
 - [ ] These are your `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`
 
+> Note: The infrastructure now provisions a **scoped runtime IAM key** for instances and pulls secrets from Scaleway Secret Manager at boot. You no longer pass runtime secrets (DB/Redis/S3/SQS/PASETO/admin token) via cloud-init or `terraform.tfvars`.
+
 ### 4. Create Terraform State Bucket
 
 **When:** Before `terraform init`
@@ -70,6 +72,10 @@ aws s3 mb s3://ciel-terraform-state \
 
 - [ ] Create bucket named `ciel-terraform-state` in `fr-par` region
 - [ ] Ensure the bucket is private (default)
+
+### 4.5 Runtime Secrets (NEW)
+
+Instances now **fetch runtime secrets from Scaleway Secret Manager at boot** using a scoped IAM key created by Terraform. You do not need to pass secrets into cloud-init or `terraform.tfvars` beyond the Terraform inputs below. Ensure instances have outbound access (public gateway) so the `scw` CLI can reach Secret Manager.
 
 ### 5. Create Container Registry Namespace
 
@@ -169,7 +175,6 @@ cp terraform.tfvars.example terraform.tfvars
 ```hcl
 # terraform.tfvars
 project_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-scw_secret_key = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 db_admin_password = "your-secure-admin-password"
 db_user_password  = "your-secure-user-password"
@@ -181,7 +186,9 @@ paseto_refresh_key = "your-base64-encoded-32-byte-key"
 # Optional
 # admin_token = "your-admin-token"
 
-container_image_tag = "latest"
+container_image_tag = "stable"
+alert_contact_emails = ["ops@example.com"]
+ssh_allowed_cidrs = []
 domain_name = "ciel-social.eu"
 enable_dns  = true
 ```
@@ -304,12 +311,12 @@ terraform validate
 
 # Plan the deployment (pass variables via command line or TF_VAR_*)
 export TF_VAR_project_id="your-project-id"
-export TF_VAR_scw_secret_key="your-secret-key"
 export TF_VAR_db_admin_password="your-db-admin-pass"
 export TF_VAR_db_user_password="your-db-user-pass"
 export TF_VAR_redis_password="your-redis-pass"
 export TF_VAR_paseto_access_key="your-paseto-access"
 export TF_VAR_paseto_refresh_key="your-paseto-refresh"
+export TF_VAR_alert_contact_emails='["ops@example.com"]'
 
 terraform plan
 terraform apply
@@ -532,3 +539,4 @@ Database migrations are forward-only. For rollback:
 4. **Enable MFA on your Scaleway account**
 5. **Review IAM policies periodically**
 6. **Keep Terraform and provider versions updated**
+7. **Admin-only endpoints require `X-Admin-Token` header** (token stored in Secret Manager)

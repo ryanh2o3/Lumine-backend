@@ -107,6 +107,12 @@ variable "db_settings" {
   }
 }
 
+variable "db_user_permission" {
+  description = "Database permissions for application user"
+  type        = string
+  default     = "readwrite"
+}
+
 variable "tags" {
   description = "Tags to apply to resources"
   type        = list(string)

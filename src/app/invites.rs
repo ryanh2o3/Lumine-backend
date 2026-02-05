@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -41,14 +41,17 @@ impl InviteService {
         user_id: Uuid,
         days_valid: i64,
     ) -> Result<InviteCode> {
+        let mut tx = self.db.pool().begin().await?;
+
         // Check user's invite quota
         let quota_check = sqlx::query(
             "SELECT trust_level, invites_sent, successful_invites \
              FROM user_trust_scores \
-             WHERE user_id = $1",
+             WHERE user_id = $1 \
+             FOR UPDATE",
         )
         .bind(user_id)
-        .fetch_optional(self.db.pool())
+        .fetch_optional(&mut *tx)
         .await?;
 
         let (trust_level, invites_sent, _successful_invites) = match quota_check {
@@ -88,7 +91,7 @@ impl InviteService {
         .bind(&code)
         .bind(user_id)
         .bind(expires_at)
-        .execute(self.db.pool())
+        .execute(&mut *tx)
         .await?;
 
         // Update invite count
@@ -98,8 +101,10 @@ impl InviteService {
              WHERE user_id = $1",
         )
         .bind(user_id)
-        .execute(self.db.pool())
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         tracing::info!(
             user_id = %user_id,
@@ -149,9 +154,20 @@ impl InviteService {
     }
 
     /// Validate and consume an invite code during signup
+    #[allow(dead_code)]
     pub async fn consume_invite(&self, code: &str, new_user_id: Uuid) -> Result<Uuid> {
         let mut tx = self.db.pool().begin().await?;
+        let created_by = self.consume_invite_with_tx(code, new_user_id, &mut tx).await?;
+        tx.commit().await?;
+        Ok(created_by)
+    }
 
+    pub async fn consume_invite_with_tx(
+        &self,
+        code: &str,
+        new_user_id: Uuid,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<Uuid> {
         // Fetch and validate invite with row lock
         let row = sqlx::query(
             "SELECT code, created_by, is_valid, expires_at, use_count, max_uses \
@@ -160,7 +176,7 @@ impl InviteService {
              FOR UPDATE",
         )
         .bind(code)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
 
         let row = row.ok_or_else(|| anyhow!("Invalid invite code"))?;
@@ -197,7 +213,7 @@ impl InviteService {
         .bind(new_user_id)
         .bind(!is_fully_used) // Mark invalid if fully used
         .bind(code)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         // Record relationship
@@ -208,7 +224,7 @@ impl InviteService {
         .bind(created_by)
         .bind(new_user_id)
         .bind(code)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         // Update inviter's successful invite count and reward with trust points
@@ -219,10 +235,8 @@ impl InviteService {
              WHERE user_id = $1",
         )
         .bind(created_by)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-
-        tx.commit().await?;
 
         tracing::info!(
             inviter_id = %created_by,
@@ -316,12 +330,14 @@ impl InviteService {
     }
 
     /// Get invite tree (who invited whom) for a user
+    #[allow(dead_code)]
     pub async fn get_invite_tree(&self, user_id: Uuid, depth: i32) -> Result<Vec<InviteRelationship>> {
         let mut relationships = Vec::new();
         self.get_invite_tree_recursive(user_id, depth, &mut relationships).await?;
         Ok(relationships)
     }
 
+    #[allow(dead_code)]
     fn get_invite_tree_recursive<'a>(
         &'a self,
         user_id: Uuid,
@@ -369,6 +385,7 @@ pub struct InviteStats {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
 pub struct InviteRelationship {
     pub inviter_id: Uuid,
     pub invitee_id: Uuid,

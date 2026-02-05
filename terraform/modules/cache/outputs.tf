@@ -41,3 +41,8 @@ output "is_managed" {
   description = "Whether using managed Redis"
   value       = var.use_managed_redis
 }
+
+output "redis_use_tls" {
+  description = "Whether Redis connections should use TLS"
+  value       = var.use_managed_redis ? var.managed_redis_tls_enabled : false
+}

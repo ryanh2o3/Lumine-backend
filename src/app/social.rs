@@ -31,6 +31,27 @@ impl SocialService {
     }
 
     pub async fn follow(&self, follower_id: Uuid, followee_id: Uuid) -> Result<bool> {
+        const MAX_FOLLOWERS: i64 = 5000;
+
+        let mut tx = self.db.pool().begin().await?;
+
+        sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+            .bind(followee_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        let follower_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM follows WHERE followee_id = $1",
+        )
+        .bind(followee_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if follower_count >= MAX_FOLLOWERS {
+            tx.rollback().await?;
+            return Err(anyhow::anyhow!("follower limit reached"));
+        }
+
         let result = sqlx::query(
             "INSERT INTO follows (follower_id, followee_id) \
              SELECT $1, $2 \
@@ -44,8 +65,10 @@ impl SocialService {
         )
         .bind(follower_id)
         .bind(followee_id)
-        .execute(self.db.pool())
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -252,4 +275,3 @@ impl SocialService {
         })
     }
 }
-

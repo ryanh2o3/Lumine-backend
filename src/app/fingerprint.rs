@@ -11,6 +11,7 @@ pub struct FingerprintService {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DeviceInfo {
     pub fingerprint_hash: String,
     pub user_ids: Vec<Uuid>,
@@ -227,6 +228,7 @@ impl FingerprintService {
     }
 
     /// Block a device
+    #[allow(dead_code)]
     pub async fn block_device(&self, fingerprint_hash: &str, reason: &str) -> Result<()> {
         sqlx::query(
             "UPDATE device_fingerprints \
@@ -251,6 +253,7 @@ impl FingerprintService {
     }
 
     /// Unblock a device
+    #[allow(dead_code)]
     pub async fn unblock_device(&self, fingerprint_hash: &str) -> Result<()> {
         sqlx::query(
             "UPDATE device_fingerprints \
@@ -295,6 +298,7 @@ impl FingerprintService {
     }
 
     /// Get high-risk devices (for admin review)
+    #[allow(dead_code)]
     pub async fn get_high_risk_devices(&self, min_risk_score: i32) -> Result<Vec<DeviceInfo>> {
         let rows = sqlx::query(
             "SELECT fingerprint_hash, user_ids, account_count, risk_score, is_blocked \

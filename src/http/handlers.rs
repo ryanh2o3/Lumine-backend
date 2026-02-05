@@ -18,14 +18,12 @@ use crate::app::posts::PostService;
 use crate::app::search::SearchService;
 use crate::app::social::SocialService;
 use crate::app::users::UserService;
-use crate::http::{AppError, AuthUser};
+use crate::http::{AdminToken, AppError, AuthUser};
 use crate::AppState;
 
 #[derive(Serialize)]
 pub(crate) struct HealthResponse {
     status: &'static str,
-    db: bool,
-    redis: bool,
 }
 
 #[derive(Deserialize)]
@@ -71,7 +69,7 @@ pub(crate) async fn health(State(state): State<AppState>) -> Json<HealthResponse
     let redis = state.cache.ping().await.is_ok();
     let status = if db && redis { "ok" } else { "degraded" };
 
-    Json(HealthResponse { status, db, redis })
+    Json(HealthResponse { status })
 }
 
 pub async fn metrics() -> Result<StatusCode, AppError> {
@@ -98,8 +96,13 @@ pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthTokenResponse>, AppError> {
+    const MAX_PASSWORD_LEN: usize = 128;
+
     if payload.email.trim().is_empty() || payload.password.trim().is_empty() {
         return Err(AppError::bad_request("email and password are required"));
+    }
+    if payload.password.len() > MAX_PASSWORD_LEN {
+        return Err(AppError::bad_request("password must be at most 128 characters"));
     }
 
     let service = AuthService::new(
@@ -113,7 +116,7 @@ pub async fn login(
         .login(&payload.email, &payload.password)
         .await
         .map_err(|err| {
-            tracing::error!(error = ?err, email = %payload.email, "failed to login");
+            tracing::error!(error = ?err, "failed to login");
             AppError::internal("failed to login")
         })?;
 
@@ -195,11 +198,8 @@ pub async fn revoke_token(
             AppError::internal("failed to revoke token")
         })?;
 
-    if revoked {
-        Ok(StatusCode::NO_CONTENT)
-    } else {
-        Ok(StatusCode::NOT_FOUND)
-    }
+    let _ = revoked;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn get_current_user(
@@ -230,7 +230,7 @@ pub async fn get_current_user(
 pub async fn get_user(
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
-) -> Result<Json<crate::domain::user::User>, AppError> {
+) -> Result<Json<crate::domain::user::PublicUser>, AppError> {
     let service = UserService::new(state.db.clone());
     let user = service.get_user(id).await.map_err(|err| {
         tracing::error!(error = ?err, user_id = %id, "failed to fetch user");
@@ -238,7 +238,7 @@ pub async fn get_user(
     })?;
 
     match user {
-        Some(user) => Ok(Json(user)),
+        Some(user) => Ok(Json(user.into())),
         None => Err(AppError::not_found("user not found")),
     }
 }
@@ -251,12 +251,15 @@ pub struct CreateUserRequest {
     pub bio: Option<String>,
     pub avatar_key: Option<String>,
     pub password: String,
+    pub invite_code: String,
 }
 
 pub async fn create_user(
     State(state): State<AppState>,
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<Json<crate::domain::user::User>, AppError> {
+    const MAX_PASSWORD_LEN: usize = 128;
+
     if payload.handle.trim().is_empty() {
         return Err(AppError::bad_request("handle cannot be empty"));
     }
@@ -268,6 +271,12 @@ pub async fn create_user(
     }
     if payload.password.trim().len() < 8 {
         return Err(AppError::bad_request("password must be at least 8 characters"));
+    }
+    if payload.password.len() > MAX_PASSWORD_LEN {
+        return Err(AppError::bad_request("password must be at most 128 characters"));
+    }
+    if payload.invite_code.trim().is_empty() {
+        return Err(AppError::bad_request("invite_code is required"));
     }
 
     let service = AuthService::new(
@@ -285,6 +294,7 @@ pub async fn create_user(
             payload.bio,
             payload.avatar_key,
             payload.password,
+            payload.invite_code,
         )
         .await
         .map_err(|err| {
@@ -303,8 +313,12 @@ pub async fn create_user(
                     }
                 }
             }
+            let message = err.to_string();
+            if message.contains("invite code") || message.contains("Invite code") {
+                return AppError::bad_request(message);
+            }
             tracing::error!(error = ?err, "failed to create user");
-            AppError::bad_request("failed to create user")
+            AppError::internal("failed to create user")
         })?;
 
     Ok(Json(user))
@@ -324,7 +338,7 @@ pub async fn update_profile(
     Json(payload): Json<UpdateProfileRequest>,
 ) -> Result<Json<crate::domain::user::User>, AppError> {
     if auth.user_id != id {
-        return Err(AppError::unauthorized("cannot update other users"));
+        return Err(AppError::forbidden("cannot update other users"));
     }
 
     if let Some(display_name) = &payload.display_name {
@@ -394,6 +408,9 @@ pub async fn follow_user(
 
     let service = SocialService::new(state.db.clone());
     let followed = service.follow(auth.user_id, id).await.map_err(|err| {
+        if err.to_string().contains("follower limit") {
+            return AppError::forbidden("user has reached the follower limit");
+        }
         tracing::error!(error = ?err, follower_id = %auth.user_id, followee_id = %id, "failed to follow user");
         AppError::internal("failed to follow user")
     })?;
@@ -477,7 +494,7 @@ pub struct UnblockResponse {
 
 #[derive(Serialize)]
 pub struct SocialUserItem {
-    pub user: crate::domain::user::User,
+    pub user: crate::domain::user::PublicUser,
     #[serde(with = "time::serde::rfc3339")]
     pub followed_at: OffsetDateTime,
 }
@@ -513,7 +530,7 @@ pub async fn list_followers(
     let items = followers
         .into_iter()
         .map(|edge| SocialUserItem {
-            user: edge.user,
+            user: edge.user.into(),
             followed_at: edge.followed_at,
         })
         .collect();
@@ -555,7 +572,7 @@ pub async fn list_following(
     let items = following
         .into_iter()
         .map(|edge| SocialUserItem {
-            user: edge.user,
+            user: edge.user.into(),
             followed_at: edge.followed_at,
         })
         .collect();
@@ -779,8 +796,13 @@ pub async fn comment_post(
     State(state): State<AppState>,
     Json(payload): Json<CommentRequest>,
 ) -> Result<Json<crate::domain::engagement::Comment>, AppError> {
+    const MAX_COMMENT_LEN: usize = 1000;
+
     if payload.body.trim().is_empty() {
         return Err(AppError::bad_request("comment body cannot be empty"));
+    }
+    if payload.body.chars().count() > MAX_COMMENT_LEN {
+        return Err(AppError::bad_request("comment body exceeds 1000 characters"));
     }
 
     let service = EngagementService::new(state.db.clone());
@@ -960,11 +982,12 @@ pub async fn complete_upload(
 }
 
 pub async fn get_media(
+    auth: AuthUser,
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
 ) -> Result<Json<crate::domain::media::Media>, AppError> {
     let service = MediaService::new(state.db.clone(), state.storage.clone(), state.queue.clone(), state.s3_public_endpoint.clone());
-    let media = service.get_media(id).await.map_err(|err| {
+    let media = service.get_media_for_user(id, auth.user_id).await.map_err(|err| {
         tracing::error!(error = ?err, media_id = %id, "failed to fetch media");
         AppError::internal("failed to fetch media")
     })?;
@@ -1095,6 +1118,7 @@ pub async fn flag_user(
 
 pub async fn takedown_post(
     auth: AuthUser,
+    _admin: AdminToken,
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
     Json(payload): Json<ModerationRequest>,
@@ -1117,6 +1141,7 @@ pub async fn takedown_post(
 
 pub async fn takedown_comment(
     auth: AuthUser,
+    _admin: AdminToken,
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
     Json(payload): Json<ModerationRequest>,
@@ -1139,6 +1164,7 @@ pub async fn takedown_comment(
 
 pub async fn list_moderation_audit(
     _auth: AuthUser,
+    _admin: AdminToken,
     State(state): State<AppState>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<ListResponse<crate::domain::moderation::ModerationAction>>, AppError> {
@@ -1178,9 +1204,10 @@ pub struct SearchQuery {
 }
 
 pub async fn search_users(
+    _auth: AuthUser,
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
-) -> Result<Json<ListResponse<crate::domain::user::User>>, AppError> {
+) -> Result<Json<ListResponse<crate::domain::user::PublicUser>>, AppError> {
     let term = query.q.trim();
     if term.len() < 2 {
         return Err(AppError::bad_request("q must be at least 2 characters"));
@@ -1207,13 +1234,16 @@ pub async fn search_users(
         None
     };
 
+    let items = users.into_iter().map(crate::domain::user::PublicUser::from).collect();
+
     Ok(Json(ListResponse {
-        items: users,
+        items,
         next_cursor: encode_cursor(next_cursor),
     }))
 }
 
 pub async fn search_posts(
+    _auth: AuthUser,
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<ListResponse<crate::domain::post::Post>>, AppError> {
@@ -1601,18 +1631,35 @@ pub async fn get_user_stories(
     Path(id): Path<Uuid>,
     auth: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<crate::domain::story::Story>>, AppError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<ListResponse<crate::domain::story::Story>>, AppError> {
+    let limit = query.limit.unwrap_or(30);
+    if !(1..=200).contains(&limit) {
+        return Err(AppError::bad_request("limit must be between 1 and 200"));
+    }
+    let cursor = parse_cursor(query.cursor)?;
+
     let service =
         crate::app::stories::StoryService::new(state.db.clone(), state.cache.clone());
-    let stories = service
-        .get_user_stories(id, auth.user_id)
+    let mut stories = service
+        .get_user_stories(id, auth.user_id, cursor, limit + 1)
         .await
         .map_err(|err| {
             tracing::error!(error = ?err, user_id = %id, "failed to get user stories");
             AppError::internal("failed to get user stories")
         })?;
 
-    Ok(Json(stories))
+    let next_cursor = if stories.len() > limit as usize {
+        let last = stories.pop().expect("checked len");
+        Some((last.created_at, last.id))
+    } else {
+        None
+    };
+
+    Ok(Json(ListResponse {
+        items: stories,
+        next_cursor: encode_cursor(next_cursor),
+    }))
 }
 
 pub async fn get_story(
@@ -1662,7 +1709,14 @@ pub async fn get_story_viewers(
     Path(id): Path<Uuid>,
     auth: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<crate::domain::story::StoryView>>, AppError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<ListResponse<crate::domain::story::StoryView>>, AppError> {
+    let limit = query.limit.unwrap_or(30);
+    if !(1..=200).contains(&limit) {
+        return Err(AppError::bad_request("limit must be between 1 and 200"));
+    }
+    let cursor = parse_cursor(query.cursor)?;
+
     let service =
         crate::app::stories::StoryService::new(state.db.clone(), state.cache.clone());
 
@@ -1680,12 +1734,25 @@ pub async fn get_story_viewers(
         None => return Err(AppError::not_found("story not found")),
     }
 
-    let viewers = service.list_viewers(id).await.map_err(|err| {
-        tracing::error!(error = ?err, story_id = %id, "failed to list story viewers");
-        AppError::internal("failed to list story viewers")
-    })?;
+    let mut viewers = service
+        .list_viewers(id, cursor, limit + 1)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, story_id = %id, "failed to list story viewers");
+            AppError::internal("failed to list story viewers")
+        })?;
 
-    Ok(Json(viewers))
+    let next_cursor = if viewers.len() > limit as usize {
+        let last = viewers.pop().expect("checked len");
+        Some((last.viewed_at, last.viewer_id))
+    } else {
+        None
+    };
+
+    Ok(Json(ListResponse {
+        items: viewers,
+        next_cursor: encode_cursor(next_cursor),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1699,14 +1766,18 @@ pub async fn add_story_reaction(
     State(state): State<AppState>,
     Json(payload): Json<AddReactionRequest>,
 ) -> Result<Json<crate::domain::story::StoryReaction>, AppError> {
-    if payload.emoji.trim().is_empty() {
+    let emoji = payload.emoji.trim();
+    if emoji.is_empty() {
         return Err(AppError::bad_request("emoji cannot be empty"));
+    }
+    if emoji.chars().count() > 7 {
+        return Err(AppError::bad_request("emoji must be at most 7 characters"));
     }
 
     let service =
         crate::app::stories::StoryService::new(state.db.clone(), state.cache.clone());
     let reaction = service
-        .add_reaction(id, auth.user_id, payload.emoji)
+        .add_reaction(id, auth.user_id, emoji.to_string())
         .await
         .map_err(|err| {
             if let Some(sqlx_err) = err.downcast_ref::<sqlx::Error>() {
@@ -1727,16 +1798,49 @@ pub async fn add_story_reaction(
 
 pub async fn list_story_reactions(
     Path(id): Path<Uuid>,
+    auth: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<crate::domain::story::StoryReaction>>, AppError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<ListResponse<crate::domain::story::StoryReaction>>, AppError> {
+    let limit = query.limit.unwrap_or(30);
+    if !(1..=200).contains(&limit) {
+        return Err(AppError::bad_request("limit must be between 1 and 200"));
+    }
+    let cursor = parse_cursor(query.cursor)?;
+
     let service =
         crate::app::stories::StoryService::new(state.db.clone(), state.cache.clone());
-    let reactions = service.list_reactions(id).await.map_err(|err| {
-        tracing::error!(error = ?err, story_id = %id, "failed to list story reactions");
-        AppError::internal("failed to list story reactions")
-    })?;
+    let story = service
+        .get_story(id, auth.user_id)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, story_id = %id, user_id = %auth.user_id, "failed to check story visibility");
+            AppError::internal("failed to list story reactions")
+        })?;
 
-    Ok(Json(reactions))
+    if story.is_none() {
+        return Err(AppError::not_found("story not found"));
+    }
+
+    let mut reactions = service
+        .list_reactions(id, cursor, limit + 1)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, story_id = %id, "failed to list story reactions");
+            AppError::internal("failed to list story reactions")
+        })?;
+
+    let next_cursor = if reactions.len() > limit as usize {
+        let last = reactions.pop().expect("checked len");
+        Some((last.created_at, last.id))
+    } else {
+        None
+    };
+
+    Ok(Json(ListResponse {
+        items: reactions,
+        next_cursor: encode_cursor(next_cursor),
+    }))
 }
 
 pub async fn remove_story_reaction(
@@ -1791,18 +1895,35 @@ pub async fn mark_story_seen(
 pub async fn get_stories_feed(
     auth: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<crate::domain::story::Story>>, AppError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<ListResponse<crate::domain::story::Story>>, AppError> {
+    let limit = query.limit.unwrap_or(30);
+    if !(1..=200).contains(&limit) {
+        return Err(AppError::bad_request("limit must be between 1 and 200"));
+    }
+    let cursor = parse_cursor(query.cursor)?;
+
     let service =
         crate::app::stories::StoryService::new(state.db.clone(), state.cache.clone());
-    let stories = service
-        .get_stories_feed(auth.user_id)
+    let mut stories = service
+        .get_stories_feed(auth.user_id, cursor, limit + 1)
         .await
         .map_err(|err| {
             tracing::error!(error = ?err, user_id = %auth.user_id, "failed to get stories feed");
             AppError::internal("failed to get stories feed")
         })?;
 
-    Ok(Json(stories))
+    let next_cursor = if stories.len() > limit as usize {
+        let last = stories.pop().expect("checked len");
+        Some((last.created_at, last.id))
+    } else {
+        None
+    };
+
+    Ok(Json(ListResponse {
+        items: stories,
+        next_cursor: encode_cursor(next_cursor),
+    }))
 }
 
 pub async fn get_story_metrics(
@@ -1859,14 +1980,35 @@ pub async fn add_story_to_highlight(
 
 pub async fn get_user_highlights(
     Path(id): Path<Uuid>,
+    _auth: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<Vec<crate::domain::story::StoryHighlight>>, AppError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<ListResponse<crate::domain::story::StoryHighlight>>, AppError> {
+    let limit = query.limit.unwrap_or(30);
+    if !(1..=200).contains(&limit) {
+        return Err(AppError::bad_request("limit must be between 1 and 200"));
+    }
+    let cursor = parse_cursor(query.cursor)?;
+
     let service =
         crate::app::stories::StoryService::new(state.db.clone(), state.cache.clone());
-    let highlights = service.get_user_highlights(id).await.map_err(|err| {
-        tracing::error!(error = ?err, user_id = %id, "failed to get user highlights");
-        AppError::internal("failed to get user highlights")
-    })?;
+    let mut highlights = service
+        .get_user_highlights(id, cursor, limit + 1)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, user_id = %id, "failed to get user highlights");
+            AppError::internal("failed to get user highlights")
+        })?;
 
-    Ok(Json(highlights))
+    let next_cursor = if highlights.len() > limit as usize {
+        let last = highlights.pop().expect("checked len");
+        Some((last.created_at, last.id))
+    } else {
+        None
+    };
+
+    Ok(Json(ListResponse {
+        items: highlights,
+        next_cursor: encode_cursor(next_cursor),
+    }))
 }

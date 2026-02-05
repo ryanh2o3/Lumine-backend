@@ -1,14 +1,9 @@
-# Cloud-init template for self-managed Redis
-data "template_file" "cloud_init_redis" {
-  count = var.use_managed_redis ? 0 : 1
-
-  template = file("${path.module}/cloud-init-redis.yaml")
-
-  vars = {
+locals {
+  cloud_init_redis = var.use_managed_redis ? "" : templatefile("${path.module}/cloud-init-redis.yaml", {
     redis_password   = var.redis_password
     maxmemory_mb     = var.redis_maxmemory_mb
     maxmemory_policy = var.redis_maxmemory_policy
-  }
+  })
 }
 
 # Self-managed Redis instance
@@ -27,7 +22,7 @@ resource "scaleway_instance_server" "redis" {
   }
 
   user_data = {
-    cloud-init = data.template_file.cloud_init_redis[0].rendered
+    cloud-init = local.cloud_init_redis
   }
 
   tags = concat(var.tags, [
