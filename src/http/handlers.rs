@@ -362,6 +362,28 @@ pub async fn update_profile(
     }
 }
 
+/// Delete user account and all associated data (GDPR/CCPA compliance)
+pub async fn delete_account(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<StatusCode, AppError> {
+    let service = UserService::new(state.db.clone());
+    let deleted = service
+        .delete_account(auth.user_id)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = ?err, user_id = %auth.user_id, "failed to delete account");
+            AppError::internal("failed to delete account")
+        })?;
+
+    if deleted {
+        tracing::info!(user_id = %auth.user_id, "account deleted");
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(AppError::not_found("user not found"))
+    }
+}
+
 pub async fn list_user_posts(
     Path(id): Path<Uuid>,
     auth: Option<AuthUser>,

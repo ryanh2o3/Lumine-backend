@@ -2,6 +2,8 @@ use axum::{
     middleware as axum_middleware,
     Router,
 };
+use tower_http::compression::CompressionLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::AppState;
 
@@ -125,4 +127,9 @@ pub fn router(state: AppState) -> Router {
                 ))
         )
         .with_state(state)
+        // Global middleware layers (applied to all routes)
+        // Response compression (gzip, brotli)
+        .layer(CompressionLayer::new())
+        // Request body size limit (10MB default, matches UPLOAD_MAX_BYTES)
+        .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))
 }

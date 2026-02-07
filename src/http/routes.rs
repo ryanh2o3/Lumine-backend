@@ -32,6 +32,8 @@ pub fn users() -> Router<AppState> {
         .route("/users/:id/followers", get(handlers::list_followers))
         .route("/users/:id/following", get(handlers::list_following))
         .route("/users/:id/relationship", get(handlers::relationship_status))
+        // Account management (authenticated user's own account)
+        .route("/account", delete(handlers::delete_account))
 }
 
 pub fn posts() -> Router<AppState> {

@@ -72,5 +72,18 @@ impl UserService {
 
         Ok(user)
     }
+
+    /// Delete user account and all associated data (GDPR compliance)
+    /// Uses CASCADE to automatically delete: posts, media, likes, comments, follows, blocks, etc.
+    pub async fn delete_account(&self, user_id: Uuid) -> Result<bool> {
+        // The database schema uses ON DELETE CASCADE, so deleting the user
+        // automatically cascades to all related tables
+        let result = sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(self.db.pool())
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }
 
