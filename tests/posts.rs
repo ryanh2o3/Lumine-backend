@@ -21,7 +21,7 @@ async fn create_post_valid() {
 
     let resp = app
         .post_json(
-            "/posts",
+            "/v1/posts",
             json!({ "media_id": media_id.to_string(), "caption": "My first post!" }),
             Some(&user.access_token),
         )
@@ -43,7 +43,7 @@ async fn create_post_caption_too_long() {
 
     let resp = app
         .post_json(
-            "/posts",
+            "/v1/posts",
             json!({
                 "media_id": media_id.to_string(),
                 "caption": "a".repeat(2201)
@@ -67,7 +67,7 @@ async fn create_post_invalid_media() {
 
     let resp = app
         .post_json(
-            "/posts",
+            "/v1/posts",
             json!({ "media_id": fake_media_id.to_string(), "caption": "test" }),
             Some(&user.access_token),
         )
@@ -84,7 +84,7 @@ async fn get_post() {
     let (post_id, _) = app.create_post_for_user(user.id).await;
 
     // Public posts visible without auth
-    let resp = app.get(&format!("/posts/{}", post_id), None).await;
+    let resp = app.get(&format!("/v1/posts/{}", post_id), None).await;
 
     assert_eq!(resp.status, StatusCode::OK);
     let body = resp.json();
@@ -97,7 +97,7 @@ async fn get_nonexistent_post() {
     let app = app().await;
 
     let resp = app
-        .get(&format!("/posts/{}", Uuid::new_v4()), None)
+        .get(&format!("/v1/posts/{}", Uuid::new_v4()), None)
         .await;
 
     assert_eq!(resp.status, StatusCode::NOT_FOUND);
@@ -112,7 +112,7 @@ async fn update_post_caption() {
 
     let resp = app
         .patch_json(
-            &format!("/posts/{}", post_id),
+            &format!("/v1/posts/{}", post_id),
             json!({ "caption": "Updated caption" }),
             Some(&user.access_token),
         )
@@ -132,7 +132,7 @@ async fn update_post_wrong_user() {
 
     let resp = app
         .patch_json(
-            &format!("/posts/{}", post_id),
+            &format!("/v1/posts/{}", post_id),
             json!({ "caption": "Hacked caption" }),
             Some(&user_b.access_token),
         )
@@ -149,12 +149,12 @@ async fn delete_post() {
     let (post_id, _) = app.create_post_for_user(user.id).await;
 
     let resp = app
-        .delete(&format!("/posts/{}", post_id), Some(&user.access_token))
+        .delete(&format!("/v1/posts/{}", post_id), Some(&user.access_token))
         .await;
     assert_eq!(resp.status, StatusCode::NO_CONTENT);
 
     // Verify post is gone
-    let resp = app.get(&format!("/posts/{}", post_id), None).await;
+    let resp = app.get(&format!("/v1/posts/{}", post_id), None).await;
     assert_eq!(resp.status, StatusCode::NOT_FOUND);
 }
 
@@ -166,14 +166,14 @@ async fn delete_post_wrong_user() {
     let (post_id, _) = app.create_post_for_user(user_a.id).await;
 
     let resp = app
-        .delete(&format!("/posts/{}", post_id), Some(&user_b.access_token))
+        .delete(&format!("/v1/posts/{}", post_id), Some(&user_b.access_token))
         .await;
 
     // Ownership enforced — returns 404
     assert_eq!(resp.status, StatusCode::NOT_FOUND);
 
     // Verify post still exists
-    let resp = app.get(&format!("/posts/{}", post_id), None).await;
+    let resp = app.get(&format!("/v1/posts/{}", post_id), None).await;
     assert_eq!(resp.status, StatusCode::OK);
 }
 
@@ -187,7 +187,7 @@ async fn list_user_posts() {
     app.create_post_for_user(user.id).await;
 
     let resp = app
-        .get(&format!("/users/{}/posts?limit=10", user.id), None)
+        .get(&format!("/v1/users/{}/posts?limit=10", user.id), None)
         .await;
 
     assert_eq!(resp.status, StatusCode::OK);
@@ -204,7 +204,7 @@ async fn create_post_no_caption() {
 
     let resp = app
         .post_json(
-            "/posts",
+            "/v1/posts",
             json!({ "media_id": media_id.to_string() }),
             Some(&user.access_token),
         )

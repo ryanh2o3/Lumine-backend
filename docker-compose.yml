@@ -74,11 +74,11 @@ services:
       S3_ENDPOINT: http://localstack:4566
       S3_REGION: us-east-1
       S3_BUCKET: ciel-media
-      S3_PUBLIC_ENDPOINT: 192.168.1.66:4566
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-localhost:4566}
       QUEUE_ENDPOINT: http://localstack:4566
       QUEUE_REGION: us-east-1
       QUEUE_NAME: ciel-media-jobs
-      AUTH_TOKEN_TTL_HOURS: 168
+
       ACCESS_TTL_MINUTES: 15
       REFRESH_TTL_DAYS: 30
       UPLOAD_URL_TTL_SECONDS: 900
@@ -111,11 +111,11 @@ services:
       S3_ENDPOINT: http://localstack:4566
       S3_REGION: us-east-1
       S3_BUCKET: ciel-media
-      S3_PUBLIC_ENDPOINT: 192.168.1.66:4566
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-localhost:4566}
       QUEUE_ENDPOINT: http://localstack:4566
       QUEUE_REGION: us-east-1
       QUEUE_NAME: ciel-media-jobs
-      AUTH_TOKEN_TTL_HOURS: 168
+
       ACCESS_TTL_MINUTES: 15
       REFRESH_TTL_DAYS: 30
       UPLOAD_URL_TTL_SECONDS: 900

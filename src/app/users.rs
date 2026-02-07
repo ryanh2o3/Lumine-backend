@@ -18,7 +18,7 @@ impl UserService {
     pub async fn get_user(&self, _user_id: Uuid) -> Result<Option<User>> {
         let row = sqlx::query(
             "SELECT id, handle, email, display_name, bio, avatar_key, created_at \
-             FROM users WHERE id = $1",
+             FROM users WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(_user_id)
         .fetch_optional(self.db.pool())
@@ -51,7 +51,7 @@ impl UserService {
              SET display_name = COALESCE($2, display_name), \
                  bio = COALESCE($3, bio), \
                  avatar_key = COALESCE($4, avatar_key) \
-             WHERE id = $1 \
+             WHERE id = $1 AND deleted_at IS NULL \
              RETURNING id, handle, email, display_name, bio, avatar_key, created_at",
         )
         .bind(user_id)
@@ -75,17 +75,47 @@ impl UserService {
         Ok(user)
     }
 
-    /// Delete user account and all associated data (GDPR compliance)
-    /// Uses CASCADE to automatically delete: posts, media, likes, comments, follows, blocks, etc.
+    /// Soft-delete user account (GDPR/CCPA compliance)
+    /// Sets deleted_at timestamp and cleans up related data that previously relied on CASCADE.
     pub async fn delete_account(&self, user_id: Uuid) -> Result<bool> {
-        // The database schema uses ON DELETE CASCADE, so deleting the user
-        // automatically cascades to all related tables
-        let result = sqlx::query("DELETE FROM users WHERE id = $1")
+        let mut tx = self.db.pool().begin().await?;
+
+        // Soft-delete the user
+        let result = sqlx::query(
+            "UPDATE users SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+
+        // Revoke all refresh tokens
+        sqlx::query(
+            "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Remove all follow relationships (both directions)
+        sqlx::query("DELETE FROM follows WHERE follower_id = $1 OR followee_id = $1")
             .bind(user_id)
-            .execute(self.db.pool())
+            .execute(&mut *tx)
             .await?;
 
-        Ok(result.rows_affected() > 0)
+        // Remove all block relationships (both directions)
+        sqlx::query("DELETE FROM blocks WHERE blocker_id = $1 OR blocked_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
+        Ok(true)
     }
 }
 

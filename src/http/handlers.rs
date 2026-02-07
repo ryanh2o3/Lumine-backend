@@ -305,6 +305,14 @@ pub async fn create_user(
     if payload.email.trim().is_empty() {
         return Err(AppError::bad_request("email cannot be empty"));
     }
+    // H2: Basic email format validation
+    {
+        let email = payload.email.trim();
+        let parts: Vec<&str> = email.split('@').collect();
+        if parts.len() != 2 || parts[0].is_empty() || !parts[1].contains('.') {
+            return Err(AppError::bad_request("invalid email format"));
+        }
+    }
     if payload.display_name.trim().is_empty() {
         return Err(AppError::bad_request("display_name cannot be empty"));
     }
@@ -321,6 +329,16 @@ pub async fn create_user(
     }
     if payload.password.len() > MAX_PASSWORD_LEN {
         return Err(AppError::bad_request("password must be at most 128 characters"));
+    }
+    // H3: Password strength requirements
+    if !payload.password.chars().any(|c| c.is_uppercase()) {
+        return Err(AppError::bad_request("password must contain at least one uppercase letter"));
+    }
+    if !payload.password.chars().any(|c| c.is_lowercase()) {
+        return Err(AppError::bad_request("password must contain at least one lowercase letter"));
+    }
+    if !payload.password.chars().any(|c| c.is_ascii_digit()) {
+        return Err(AppError::bad_request("password must contain at least one digit"));
     }
     if payload.invite_code.trim().is_empty() {
         return Err(AppError::bad_request("invite_code is required"));
@@ -481,8 +499,7 @@ pub async fn list_user_posts(
         })?;
 
     let next_cursor = if posts.len() > limit as usize {
-        let last = posts.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        posts.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -620,8 +637,7 @@ pub async fn list_followers(
         })?;
 
     let next_cursor = if followers.len() > limit as usize {
-        let last = followers.pop().expect("checked len");
-        Some((last.followed_at, last.user.id))
+        followers.pop().map(|last| (last.followed_at, last.user.id))
     } else {
         None
     };
@@ -662,8 +678,7 @@ pub async fn list_following(
         })?;
 
     let next_cursor = if following.len() > limit as usize {
-        let last = following.pop().expect("checked len");
-        Some((last.followed_at, last.user.id))
+        following.pop().map(|last| (last.followed_at, last.user.id))
     } else {
         None
     };
@@ -750,9 +765,18 @@ pub async fn create_post(
                     }
                 }
             }
+            if err.to_string().contains("media not found") {
+                return AppError::bad_request("invalid media_id");
+            }
             tracing::error!(error = ?err, owner_id = %auth.user_id, "failed to create post");
             AppError::internal("failed to create post")
         })?;
+
+    // H5: Invalidate poster's own home feed cache
+    let feed_service = FeedService::new(state.db.clone(), state.cache.clone());
+    if let Err(err) = feed_service.refresh_home_feed(auth.user_id).await {
+        tracing::warn!(error = ?err, user_id = %auth.user_id, "failed to invalidate feed cache after post creation");
+    }
 
     Ok(Json(post))
 }
@@ -886,8 +910,7 @@ pub async fn list_post_likes(
         })?;
 
     let next_cursor = if likes.len() > limit as usize {
-        let last = likes.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        likes.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -956,8 +979,7 @@ pub async fn list_post_comments(
         })?;
 
     let next_cursor = if comments.len() > limit as usize {
-        let last = comments.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        comments.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -1178,8 +1200,7 @@ pub async fn list_notifications(
         })?;
 
     let next_cursor = if notifications.len() > limit as usize {
-        let last = notifications.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        notifications.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -1302,8 +1323,7 @@ pub async fn list_moderation_audit(
         })?;
 
     let next_cursor = if actions.len() > limit as usize {
-        let last = actions.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        actions.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -1346,8 +1366,7 @@ pub async fn search_users(
         })?;
 
     let next_cursor = if users.len() > limit as usize {
-        let last = users.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        users.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -1385,8 +1404,7 @@ pub async fn search_posts(
         })?;
 
     let next_cursor = if posts.len() > limit as usize {
-        let last = posts.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        posts.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -1768,8 +1786,7 @@ pub async fn get_user_stories(
         })?;
 
     let next_cursor = if stories.len() > limit as usize {
-        let last = stories.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        stories.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -1861,8 +1878,7 @@ pub async fn get_story_viewers(
         })?;
 
     let next_cursor = if viewers.len() > limit as usize {
-        let last = viewers.pop().expect("checked len");
-        Some((last.viewed_at, last.viewer_id))
+        viewers.pop().map(|last| (last.viewed_at, last.viewer_id))
     } else {
         None
     };
@@ -1949,8 +1965,7 @@ pub async fn list_story_reactions(
         })?;
 
     let next_cursor = if reactions.len() > limit as usize {
-        let last = reactions.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        reactions.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -2032,8 +2047,7 @@ pub async fn get_stories_feed(
         })?;
 
     let next_cursor = if stories.len() > limit as usize {
-        let last = stories.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        stories.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };
@@ -2119,8 +2133,7 @@ pub async fn get_user_highlights(
         })?;
 
     let next_cursor = if highlights.len() > limit as usize {
-        let last = highlights.pop().expect("checked len");
-        Some((last.created_at, last.id))
+        highlights.pop().map(|last| (last.created_at, last.id))
     } else {
         None
     };

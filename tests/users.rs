@@ -21,12 +21,12 @@ async fn signup_valid_data() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "newuser_reg",
                 "email": "newuser_reg@example.com",
                 "display_name": "New User",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -50,12 +50,12 @@ async fn signup_duplicate_handle() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": existing.handle,
                 "email": "unique_duphandle@example.com",
                 "display_name": "Another User",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -75,12 +75,12 @@ async fn signup_duplicate_email() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "unique_dupemail",
                 "email": existing.email,
                 "display_name": "Another User",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -97,12 +97,12 @@ async fn signup_invalid_invite_code() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "inv_badcode",
                 "email": "inv_badcode@example.com",
                 "display_name": "Bad Code User",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": "NONEXISTENT_CODE"
             }),
             None,
@@ -120,12 +120,12 @@ async fn signup_expired_invite_code() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "inv_expired",
                 "email": "inv_expired@example.com",
                 "display_name": "Expired Invite User",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -143,12 +143,12 @@ async fn signup_already_used_invite() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "inv_used",
                 "email": "inv_used@example.com",
                 "display_name": "Used Invite User",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -166,12 +166,12 @@ async fn signup_revoked_invite() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "inv_revoked",
                 "email": "inv_revoked@example.com",
                 "display_name": "Revoked Invite User",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -189,12 +189,12 @@ async fn signup_handle_too_short() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "ab",
                 "email": "short_handle@example.com",
                 "display_name": "Short Handle",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -216,12 +216,12 @@ async fn signup_handle_too_long() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "a".repeat(31),
                 "email": "long_handle@example.com",
                 "display_name": "Long Handle",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -243,12 +243,12 @@ async fn signup_handle_special_chars() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "bad@handle#",
                 "email": "special_handle@example.com",
                 "display_name": "Special Handle",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -270,7 +270,7 @@ async fn signup_password_too_short() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "shortpw_user",
                 "email": "shortpw@example.com",
@@ -297,7 +297,7 @@ async fn signup_password_too_long() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "longpw_user",
                 "email": "longpw@example.com",
@@ -324,13 +324,13 @@ async fn signup_bio_too_long() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "longbio_user",
                 "email": "longbio@example.com",
                 "display_name": "Long Bio User",
                 "bio": "a".repeat(501),
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -352,12 +352,12 @@ async fn signup_display_name_empty() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "emptydn_user",
                 "email": "emptydn@example.com",
                 "display_name": "",
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -376,12 +376,12 @@ async fn signup_display_name_too_long() {
 
     let resp = app
         .post_json(
-            "/users",
+            "/v1/users",
             json!({
                 "handle": "longdn_user",
                 "email": "longdn@example.com",
                 "display_name": "a".repeat(51),
-                "password": "securepassword123",
+                "password": "Securepassword123",
                 "invite_code": code
             }),
             None,
@@ -406,7 +406,7 @@ async fn update_own_profile() {
 
     let resp = app
         .patch_json(
-            &format!("/users/{}", user.id),
+            &format!("/v1/users/{}", user.id),
             json!({ "display_name": "Updated Name", "bio": "Hello world" }),
             Some(&user.access_token),
         )
@@ -426,7 +426,7 @@ async fn update_other_user_profile() {
 
     let resp = app
         .patch_json(
-            &format!("/users/{}", user_b.id),
+            &format!("/v1/users/{}", user_b.id),
             json!({ "display_name": "Hacked Name" }),
             Some(&user_a.access_token),
         )
@@ -443,7 +443,7 @@ async fn update_profile_empty_display_name() {
 
     let resp = app
         .patch_json(
-            &format!("/users/{}", user.id),
+            &format!("/v1/users/{}", user.id),
             json!({ "display_name": "" }),
             Some(&user.access_token),
         )
@@ -460,7 +460,7 @@ async fn update_profile_bio_too_long() {
 
     let resp = app
         .patch_json(
-            &format!("/users/{}", user.id),
+            &format!("/v1/users/{}", user.id),
             json!({ "bio": "a".repeat(501) }),
             Some(&user.access_token),
         )
@@ -479,7 +479,7 @@ async fn get_user_by_id() {
     let user = app.create_user("prof_getuser").await;
 
     // GET /users/:id is a public endpoint (no auth needed)
-    let resp = app.get(&format!("/users/{}", user.id), None).await;
+    let resp = app.get(&format!("/v1/users/{}", user.id), None).await;
 
     assert_eq!(resp.status, StatusCode::OK);
     let body = resp.json();
@@ -493,7 +493,7 @@ async fn get_nonexistent_user() {
     let app = app().await;
 
     let resp = app
-        .get(&format!("/users/{}", Uuid::new_v4()), None)
+        .get(&format!("/v1/users/{}", Uuid::new_v4()), None)
         .await;
 
     assert_eq!(resp.status, StatusCode::NOT_FOUND);
@@ -510,13 +510,13 @@ async fn delete_own_account() {
     let user = app.create_user("del_own").await;
 
     let resp = app
-        .delete("/account", Some(&user.access_token))
+        .delete("/v1/account", Some(&user.access_token))
         .await;
 
     assert_eq!(resp.status, StatusCode::NO_CONTENT);
 
     // Verify user no longer exists
-    let resp = app.get(&format!("/users/{}", user.id), None).await;
+    let resp = app.get(&format!("/v1/users/{}", user.id), None).await;
     assert_eq!(resp.status, StatusCode::NOT_FOUND);
 }
 
@@ -527,11 +527,11 @@ async fn delete_account_invalidates_tokens() {
     let token = user.access_token.clone();
 
     // Delete account
-    let resp = app.delete("/account", Some(&token)).await;
+    let resp = app.delete("/v1/account", Some(&token)).await;
     assert_eq!(resp.status, StatusCode::NO_CONTENT);
 
     // Old access token should no longer work for protected endpoints
-    let resp = app.get("/auth/me", Some(&token)).await;
+    let resp = app.get("/v1/auth/me", Some(&token)).await;
     assert!(
         resp.status == StatusCode::UNAUTHORIZED || resp.status == StatusCode::NOT_FOUND,
         "expected 401 or 404 after account deletion, got {}",
@@ -548,7 +548,7 @@ async fn delete_account_cascades_follows() {
     // A follows B
     let resp = app
         .post_json(
-            &format!("/users/{}/follow", user_b.id),
+            &format!("/v1/users/{}/follow", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -558,7 +558,7 @@ async fn delete_account_cascades_follows() {
     // Verify A is in B's followers
     let resp = app
         .get(
-            &format!("/users/{}/followers", user_b.id),
+            &format!("/v1/users/{}/followers", user_b.id),
             Some(&user_b.access_token),
         )
         .await;
@@ -567,13 +567,13 @@ async fn delete_account_cascades_follows() {
     assert!(body["items"].as_array().unwrap().len() >= 1);
 
     // Delete A's account
-    let resp = app.delete("/account", Some(&user_a.access_token)).await;
+    let resp = app.delete("/v1/account", Some(&user_a.access_token)).await;
     assert_eq!(resp.status, StatusCode::NO_CONTENT);
 
     // Verify A is no longer in B's followers
     let resp = app
         .get(
-            &format!("/users/{}/followers", user_b.id),
+            &format!("/v1/users/{}/followers", user_b.id),
             Some(&user_b.access_token),
         )
         .await;

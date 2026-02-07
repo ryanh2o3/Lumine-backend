@@ -407,15 +407,29 @@ impl MediaService {
     pub async fn populate_user_avatar_url(&self, user: &mut crate::domain::user::User) {
         if user.avatar_key.is_some() {
             user.avatar_url = self
-                .generate_presigned_get_url(user.avatar_key.as_deref(), 3600)
+                .generate_presigned_get_url(user.avatar_key.as_deref(), 14400)
                 .await;
         }
     }
 
-    /// Populate avatar URLs for a list of Users
+    /// Populate avatar URLs for a list of Users (parallelized with futures::join_all)
     pub async fn populate_users_avatar_urls(&self, users: &mut [crate::domain::user::User]) {
-        for user in users.iter_mut() {
-            self.populate_user_avatar_url(user).await;
+        let futures: Vec<_> = users
+            .iter()
+            .enumerate()
+            .filter(|(_, u)| u.avatar_key.is_some())
+            .map(|(i, u)| {
+                let key = u.avatar_key.as_deref().map(|k| k.to_string());
+                async move {
+                    let url = self.generate_presigned_get_url(key.as_deref(), 14400).await;
+                    (i, url)
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(futures).await;
+        for (i, url) in results {
+            users[i].avatar_url = url;
         }
     }
 }

@@ -20,7 +20,7 @@ async fn login_valid_credentials() {
 
     let resp = app
         .post_json(
-            "/auth/login",
+            "/v1/auth/login",
             json!({ "email": user.email, "password": DEFAULT_PASSWORD }),
             None,
         )
@@ -41,7 +41,7 @@ async fn login_invalid_password() {
 
     let resp = app
         .post_json(
-            "/auth/login",
+            "/v1/auth/login",
             json!({ "email": user.email, "password": "wrong_password" }),
             None,
         )
@@ -57,7 +57,7 @@ async fn login_nonexistent_user() {
 
     let resp = app
         .post_json(
-            "/auth/login",
+            "/v1/auth/login",
             json!({ "email": "nobody@example.com", "password": "whatever123" }),
             None,
         )
@@ -74,7 +74,7 @@ async fn login_empty_email() {
 
     let resp = app
         .post_json(
-            "/auth/login",
+            "/v1/auth/login",
             json!({ "email": "", "password": "somepassword" }),
             None,
         )
@@ -90,7 +90,7 @@ async fn login_empty_password() {
 
     let resp = app
         .post_json(
-            "/auth/login",
+            "/v1/auth/login",
             json!({ "email": "someone@example.com", "password": "" }),
             None,
         )
@@ -107,7 +107,7 @@ async fn login_password_too_long() {
 
     let resp = app
         .post_json(
-            "/auth/login",
+            "/v1/auth/login",
             json!({ "email": "someone@example.com", "password": long_pw }),
             None,
         )
@@ -126,7 +126,7 @@ async fn login_sql_injection_email() {
 
     let resp = app
         .post_json(
-            "/auth/login",
+            "/v1/auth/login",
             json!({ "email": "'; DROP TABLE users;--", "password": "whatever123" }),
             None,
         )
@@ -146,7 +146,7 @@ async fn login_sql_injection_password() {
 
     let resp = app
         .post_json(
-            "/auth/login",
+            "/v1/auth/login",
             json!({ "email": "someone@example.com", "password": "'; DROP TABLE users;--" }),
             None,
         )
@@ -170,7 +170,7 @@ async fn refresh_valid_token() {
 
     let resp = app
         .post_json(
-            "/auth/refresh",
+            "/v1/auth/refresh",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -192,7 +192,7 @@ async fn refresh_malformed_token() {
 
     let resp = app
         .post_json(
-            "/auth/refresh",
+            "/v1/auth/refresh",
             json!({ "refresh_token": "this-is-not-a-valid-token" }),
             None,
         )
@@ -208,7 +208,7 @@ async fn refresh_empty_token() {
 
     let resp = app
         .post_json(
-            "/auth/refresh",
+            "/v1/auth/refresh",
             json!({ "refresh_token": "" }),
             None,
         )
@@ -226,7 +226,7 @@ async fn refresh_revoked_token() {
     // Revoke the token first
     let resp = app
         .post_json(
-            "/auth/revoke",
+            "/v1/auth/revoke",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -236,7 +236,7 @@ async fn refresh_revoked_token() {
     // Now try to refresh with the revoked token
     let resp = app
         .post_json(
-            "/auth/refresh",
+            "/v1/auth/refresh",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -254,7 +254,7 @@ async fn refresh_already_used_token() {
     // Refresh once (old token gets rotated/revoked)
     let resp = app
         .post_json(
-            "/auth/refresh",
+            "/v1/auth/refresh",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -264,7 +264,7 @@ async fn refresh_already_used_token() {
     // Try to refresh again with the same (now-revoked) token
     let resp = app
         .post_json(
-            "/auth/refresh",
+            "/v1/auth/refresh",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -281,7 +281,7 @@ async fn revoke_own_token() {
 
     let resp = app
         .post_json(
-            "/auth/revoke",
+            "/v1/auth/revoke",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -292,7 +292,7 @@ async fn revoke_own_token() {
     // Verify the token is now unusable for refresh
     let resp = app
         .post_json(
-            "/auth/refresh",
+            "/v1/auth/refresh",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -308,7 +308,7 @@ async fn revoke_already_revoked() {
     // Revoke once
     let resp = app
         .post_json(
-            "/auth/revoke",
+            "/v1/auth/revoke",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -318,7 +318,7 @@ async fn revoke_already_revoked() {
     // Revoke again — should be idempotent (204)
     let resp = app
         .post_json(
-            "/auth/revoke",
+            "/v1/auth/revoke",
             json!({ "refresh_token": user.refresh_token }),
             None,
         )
@@ -332,7 +332,7 @@ async fn revoke_empty_token() {
 
     let resp = app
         .post_json(
-            "/auth/revoke",
+            "/v1/auth/revoke",
             json!({ "refresh_token": "" }),
             None,
         )
@@ -350,7 +350,7 @@ async fn revoke_empty_token() {
 async fn get_current_user_no_token() {
     let app = app().await;
 
-    let resp = app.get("/auth/me", None).await;
+    let resp = app.get("/v1/auth/me", None).await;
 
     assert_eq!(resp.status, StatusCode::UNAUTHORIZED);
 }
@@ -359,7 +359,7 @@ async fn get_current_user_no_token() {
 async fn get_current_user_invalid_token() {
     let app = app().await;
 
-    let resp = app.get("/auth/me", Some("garbage-token-value")).await;
+    let resp = app.get("/v1/auth/me", Some("garbage-token-value")).await;
 
     assert_eq!(resp.status, StatusCode::UNAUTHORIZED);
 }
@@ -369,7 +369,7 @@ async fn get_current_user_valid_token() {
     let app = app().await;
     let user = app.create_user("me_valid").await;
 
-    let resp = app.get("/auth/me", Some(&user.access_token)).await;
+    let resp = app.get("/v1/auth/me", Some(&user.access_token)).await;
 
     assert_eq!(resp.status, StatusCode::OK);
     let body = resp.json();
@@ -384,7 +384,7 @@ async fn create_post_no_auth() {
 
     let resp = app
         .post_json(
-            "/posts",
+            "/v1/posts",
             json!({
                 "media_id": Uuid::new_v4().to_string(),
                 "caption": "test"
@@ -403,7 +403,7 @@ async fn admin_endpoint_no_admin_token() {
 
     let resp = app
         .post_admin(
-            &format!("/moderation/posts/{}/takedown", fake_post_id),
+            &format!("/v1/moderation/posts/{}/takedown", fake_post_id),
             json!({ "reason": "test" }),
             None,
         )
@@ -423,7 +423,7 @@ async fn admin_endpoint_wrong_admin_token() {
 
     let resp = app
         .post_admin(
-            &format!("/moderation/posts/{}/takedown", fake_post_id),
+            &format!("/v1/moderation/posts/{}/takedown", fake_post_id),
             json!({ "reason": "test" }),
             Some("wrong-admin-token"),
         )
@@ -444,7 +444,7 @@ async fn admin_endpoint_valid_admin_token() {
     // Valid admin token but non-existent post — should NOT get 403
     let resp = app
         .post_admin(
-            &format!("/moderation/posts/{}/takedown", fake_post_id),
+            &format!("/v1/moderation/posts/{}/takedown", fake_post_id),
             json!({ "reason": "test" }),
             Some(app.admin_token()),
         )
@@ -467,7 +467,7 @@ async fn admin_endpoint_valid_admin_token() {
 async fn admin_audit_no_admin_token() {
     let app = app().await;
 
-    let resp = app.get_admin("/moderation/audit", None).await;
+    let resp = app.get_admin("/v1/moderation/audit", None).await;
 
     assert!(
         resp.status == StatusCode::FORBIDDEN || resp.status == StatusCode::UNAUTHORIZED,

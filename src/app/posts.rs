@@ -22,6 +22,20 @@ impl PostService {
         media_id: Uuid,
         caption: Option<String>,
     ) -> Result<Post> {
+        // C3: Verify media ownership before creating post
+        let media_owner: Option<Uuid> = sqlx::query_scalar(
+            "SELECT owner_id FROM media WHERE id = $1",
+        )
+        .bind(media_id)
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        match media_owner {
+            Some(owner) if owner == owner_id => {}
+            Some(_) => return Err(anyhow::anyhow!("media not found or not owned by user")),
+            None => return Err(anyhow::anyhow!("media not found or not owned by user")),
+        }
+
         let row = sqlx::query(
             "WITH inserted_post AS ( \
                 INSERT INTO posts (owner_id, media_id, caption, visibility) \
@@ -30,7 +44,7 @@ impl PostService {
              ) \
              SELECT p.*, u.handle AS owner_handle, u.display_name AS owner_display_name \
              FROM inserted_post p \
-             JOIN users u ON p.owner_id = u.id",
+             JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL",
         )
         .bind(owner_id)
         .bind(media_id)
@@ -63,7 +77,7 @@ impl PostService {
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
-                     JOIN users u ON p.owner_id = u.id \
+                     JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
                      WHERE p.id = $1 \
                        AND (p.visibility = 'public' \
                             OR p.owner_id = $2 \
@@ -86,7 +100,7 @@ impl PostService {
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
-                     JOIN users u ON p.owner_id = u.id \
+                     JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
                      WHERE p.id = $1 AND p.visibility = 'public'",
                 )
                 .bind(post_id)
@@ -132,7 +146,7 @@ impl PostService {
              ) \
              SELECT p.*, u.handle AS owner_handle, u.display_name AS owner_display_name \
              FROM updated_post p \
-             JOIN users u ON p.owner_id = u.id",
+             JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL",
         )
         .bind(post_id)
         .bind(owner_id)
@@ -186,7 +200,7 @@ impl PostService {
                         "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
                                 p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                          FROM posts p \
-                         JOIN users u ON p.owner_id = u.id \
+                         JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
                          WHERE p.owner_id = $1 \
                            AND (p.visibility = 'public' \
                                 OR p.owner_id = $2 \
@@ -215,7 +229,7 @@ impl PostService {
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
-                     JOIN users u ON p.owner_id = u.id \
+                     JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
                      WHERE p.owner_id = $1 \
                        AND (p.visibility = 'public' \
                             OR p.owner_id = $2 \
@@ -243,7 +257,7 @@ impl PostService {
                         "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
                                 p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                          FROM posts p \
-                         JOIN users u ON p.owner_id = u.id \
+                         JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
                          WHERE p.owner_id = $1 \
                            AND p.visibility = 'public' \
                            AND (p.created_at < $2 OR (p.created_at = $2 AND p.id < $3)) \
@@ -262,7 +276,7 @@ impl PostService {
                         "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
                                 p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                          FROM posts p \
-                         JOIN users u ON p.owner_id = u.id \
+                         JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
                          WHERE p.owner_id = $1 AND p.visibility = 'public' \
                          ORDER BY p.created_at DESC, p.id DESC \
                          LIMIT $2",

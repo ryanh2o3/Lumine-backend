@@ -20,7 +20,7 @@ async fn create_upload_valid() {
 
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/jpeg", "bytes": 1024 }),
             Some(&user.access_token),
         )
@@ -41,7 +41,7 @@ async fn create_upload_zero_bytes() {
 
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/jpeg", "bytes": 0 }),
             Some(&user.access_token),
         )
@@ -58,7 +58,7 @@ async fn create_upload_negative_bytes() {
 
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/jpeg", "bytes": -1 }),
             Some(&user.access_token),
         )
@@ -78,7 +78,7 @@ async fn create_upload_exceeds_max() {
 
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/jpeg", "bytes": huge_bytes }),
             Some(&user.access_token),
         )
@@ -95,7 +95,7 @@ async fn create_upload_invalid_content_type() {
 
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "text/html", "bytes": 1024 }),
             Some(&user.access_token),
         )
@@ -112,7 +112,7 @@ async fn create_upload_png() {
 
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/png", "bytes": 2048 }),
             Some(&user.access_token),
         )
@@ -130,7 +130,7 @@ async fn create_upload_webp() {
 
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/webp", "bytes": 512 }),
             Some(&user.access_token),
         )
@@ -150,7 +150,7 @@ async fn complete_upload_wrong_user() {
     // A creates an upload
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/jpeg", "bytes": 1024 }),
             Some(&user_a.access_token),
         )
@@ -161,7 +161,7 @@ async fn complete_upload_wrong_user() {
     // B tries to complete A's upload
     let resp = app
         .post_json(
-            &format!("/media/upload/{}/complete", upload_id),
+            &format!("/v1/media/upload/{}/complete", upload_id),
             json!({}),
             Some(&user_b.access_token),
         )
@@ -179,7 +179,7 @@ async fn get_upload_status() {
     // Create an upload
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/jpeg", "bytes": 1024 }),
             Some(&user.access_token),
         )
@@ -190,7 +190,7 @@ async fn get_upload_status() {
     // Check status
     let resp = app
         .get(
-            &format!("/media/upload/{}/status", upload_id),
+            &format!("/v1/media/upload/{}/status", upload_id),
             Some(&user.access_token),
         )
         .await;
@@ -209,7 +209,7 @@ async fn get_upload_status_wrong_user() {
     // A creates an upload
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/jpeg", "bytes": 1024 }),
             Some(&user_a.access_token),
         )
@@ -220,7 +220,7 @@ async fn get_upload_status_wrong_user() {
     // B tries to check A's upload status
     let resp = app
         .get(
-            &format!("/media/upload/{}/status", upload_id),
+            &format!("/v1/media/upload/{}/status", upload_id),
             Some(&user_b.access_token),
         )
         .await;
@@ -234,7 +234,7 @@ async fn create_upload_no_auth() {
 
     let resp = app
         .post_json(
-            "/media/upload",
+            "/v1/media/upload",
             json!({ "content_type": "image/jpeg", "bytes": 1024 }),
             None,
         )
@@ -252,7 +252,7 @@ async fn delete_media_wrong_user() {
 
     let resp = app
         .delete(
-            &format!("/media/{}", media_id),
+            &format!("/v1/media/{}", media_id),
             Some(&user_b.access_token),
         )
         .await;
@@ -267,7 +267,7 @@ async fn get_nonexistent_upload_status() {
 
     let resp = app
         .get(
-            &format!("/media/upload/{}/status", Uuid::new_v4()),
+            &format!("/v1/media/upload/{}/status", Uuid::new_v4()),
             Some(&user.access_token),
         )
         .await;

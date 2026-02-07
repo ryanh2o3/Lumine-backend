@@ -37,11 +37,22 @@ impl FeedService {
         };
         let ttl = FEED_CACHE_TTL_SECONDS;
 
-        if let Ok(mut conn) = self.cache.client().get_multiplexed_async_connection().await {
-            if let Ok(Some(payload)) = conn.get::<_, Option<String>>(&cache_key).await {
-                if let Ok(posts) = serde_json::from_str::<Vec<Post>>(&payload) {
-                    return Ok((posts, None));
+        match self.cache.client().get_multiplexed_async_connection().await {
+            Ok(mut conn) => {
+                match conn.get::<_, Option<String>>(&cache_key).await {
+                    Ok(Some(payload)) => {
+                        if let Ok(posts) = serde_json::from_str::<Vec<Post>>(&payload) {
+                            return Ok((posts, None));
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        warn!(error = ?err, "failed to read feed cache");
+                    }
                 }
+            }
+            Err(err) => {
+                warn!(error = ?err, "failed to connect to Redis for feed cache");
             }
         }
 
@@ -52,7 +63,7 @@ impl FeedService {
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
-                     JOIN users u ON p.owner_id = u.id \
+                     JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
                      WHERE (p.owner_id = $1 \
                         OR (p.owner_id IN ( \
                             SELECT followee_id FROM follows WHERE follower_id = $1 \
@@ -77,7 +88,7 @@ impl FeedService {
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
-                     JOIN users u ON p.owner_id = u.id \
+                     JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
                      WHERE p.owner_id = $1 \
                         OR (p.owner_id IN ( \
                             SELECT followee_id FROM follows WHERE follower_id = $1 \
@@ -116,8 +127,7 @@ impl FeedService {
         }
 
         let next_cursor = if posts.len() > limit as usize {
-            let extra = posts.pop().expect("checked len");
-            Some((extra.created_at, extra.id))
+            posts.pop().map(|extra| (extra.created_at, extra.id))
         } else {
             None
         };

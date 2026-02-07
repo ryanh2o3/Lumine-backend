@@ -19,7 +19,7 @@ async fn create_invite() {
 
     let resp = app
         .post_json(
-            "/invites",
+            "/v1/invites",
             json!({ "days_valid": 7 }),
             Some(&user.access_token),
         )
@@ -39,7 +39,7 @@ async fn create_invite_invalid_days_zero() {
 
     let resp = app
         .post_json(
-            "/invites",
+            "/v1/invites",
             json!({ "days_valid": 0 }),
             Some(&user.access_token),
         )
@@ -59,7 +59,7 @@ async fn create_invite_invalid_days_over_max() {
 
     let resp = app
         .post_json(
-            "/invites",
+            "/v1/invites",
             json!({ "days_valid": 31 }),
             Some(&user.access_token),
         )
@@ -79,7 +79,7 @@ async fn create_invite_default_days() {
 
     // Send empty JSON — days_valid defaults to 7
     let resp = app
-        .post_json("/invites", json!({}), Some(&user.access_token))
+        .post_json("/v1/invites", json!({}), Some(&user.access_token))
         .await;
 
     assert_eq!(resp.status, StatusCode::OK);
@@ -95,7 +95,7 @@ async fn list_invites() {
     // Create an invite via the API
     let resp = app
         .post_json(
-            "/invites",
+            "/v1/invites",
             json!({ "days_valid": 7 }),
             Some(&user.access_token),
         )
@@ -103,7 +103,7 @@ async fn list_invites() {
     assert_eq!(resp.status, StatusCode::OK);
 
     // List invites
-    let resp = app.get("/invites", Some(&user.access_token)).await;
+    let resp = app.get("/v1/invites", Some(&user.access_token)).await;
 
     assert_eq!(resp.status, StatusCode::OK);
     let body = resp.json();
@@ -117,7 +117,7 @@ async fn get_invite_stats() {
     let user = app.create_user("safe_invite_stats").await;
 
     let resp = app
-        .get("/invites/stats", Some(&user.access_token))
+        .get("/v1/invites/stats", Some(&user.access_token))
         .await;
 
     assert_eq!(resp.status, StatusCode::OK);
@@ -136,7 +136,7 @@ async fn revoke_invite() {
     // Create an invite via the API
     let resp = app
         .post_json(
-            "/invites",
+            "/v1/invites",
             json!({ "days_valid": 7 }),
             Some(&user.access_token),
         )
@@ -147,7 +147,7 @@ async fn revoke_invite() {
     // Revoke it
     let resp = app
         .post_json(
-            &format!("/invites/{}/revoke", code),
+            &format!("/v1/invites/{}/revoke", code),
             json!({}),
             Some(&user.access_token),
         )
@@ -165,7 +165,7 @@ async fn revoke_other_users_invite() {
     // A creates an invite
     let resp = app
         .post_json(
-            "/invites",
+            "/v1/invites",
             json!({ "days_valid": 7 }),
             Some(&user_a.access_token),
         )
@@ -176,7 +176,7 @@ async fn revoke_other_users_invite() {
     // B tries to revoke A's invite
     let resp = app
         .post_json(
-            &format!("/invites/{}/revoke", code),
+            &format!("/v1/invites/{}/revoke", code),
             json!({}),
             Some(&user_b.access_token),
         )
@@ -195,7 +195,7 @@ async fn create_invite_max_limit() {
     for _ in 0..3 {
         let resp = app
             .post_json(
-                "/invites",
+                "/v1/invites",
                 json!({ "days_valid": 7 }),
                 Some(&user.access_token),
             )
@@ -206,7 +206,7 @@ async fn create_invite_max_limit() {
     // 4th invite should fail
     let resp = app
         .post_json(
-            "/invites",
+            "/v1/invites",
             json!({ "days_valid": 7 }),
             Some(&user.access_token),
         )
@@ -226,7 +226,7 @@ async fn get_trust_score() {
     let user = app.create_user("safe_trust_score").await;
 
     let resp = app
-        .get("/account/trust-score", Some(&user.access_token))
+        .get("/v1/account/trust-score", Some(&user.access_token))
         .await;
 
     assert_eq!(resp.status, StatusCode::OK);
@@ -244,7 +244,7 @@ async fn get_rate_limits() {
     let user = app.create_user("safe_rate_limits").await;
 
     let resp = app
-        .get("/account/rate-limits", Some(&user.access_token))
+        .get("/v1/account/rate-limits", Some(&user.access_token))
         .await;
 
     assert_eq!(resp.status, StatusCode::OK);
@@ -262,7 +262,7 @@ async fn get_rate_limits() {
 async fn trust_score_no_auth() {
     let app = app().await;
 
-    let resp = app.get("/account/trust-score", None).await;
+    let resp = app.get("/v1/account/trust-score", None).await;
 
     assert_eq!(resp.status, StatusCode::UNAUTHORIZED);
 }
@@ -278,7 +278,7 @@ async fn register_device() {
 
     let resp = app
         .post_json(
-            "/account/device/register",
+            "/v1/account/device/register",
             json!({ "fingerprint": "test-fingerprint-abc123" }),
             Some(&user.access_token),
         )
@@ -294,7 +294,7 @@ async fn register_device_unauthenticated() {
     // Device registration also works without auth (for pre-login fingerprinting)
     let resp = app
         .post_json(
-            "/account/device/register",
+            "/v1/account/device/register",
             json!({ "fingerprint": "unauth-fingerprint-xyz" }),
             None,
         )
@@ -315,7 +315,7 @@ async fn register_device_blocked() {
 
     let resp = app
         .post_json(
-            "/account/device/register",
+            "/v1/account/device/register",
             json!({ "fingerprint": "blocked-device-fp" }),
             Some(&user.access_token),
         )
@@ -332,14 +332,14 @@ async fn list_user_devices() {
 
     // Register a device first
     app.post_json(
-        "/account/device/register",
+        "/v1/account/device/register",
         json!({ "fingerprint": "list-test-fingerprint" }),
         Some(&user.access_token),
     )
     .await;
 
     let resp = app
-        .get("/account/devices", Some(&user.access_token))
+        .get("/v1/account/devices", Some(&user.access_token))
         .await;
 
     assert_eq!(resp.status, StatusCode::OK);
@@ -358,7 +358,7 @@ async fn list_user_devices_empty() {
 
     // No devices registered
     let resp = app
-        .get("/account/devices", Some(&user.access_token))
+        .get("/v1/account/devices", Some(&user.access_token))
         .await;
 
     assert_eq!(resp.status, StatusCode::OK);
@@ -375,7 +375,7 @@ async fn register_device_twice_idempotent() {
     // Register same fingerprint twice
     let resp = app
         .post_json(
-            "/account/device/register",
+            "/v1/account/device/register",
             json!({ "fingerprint": "idempotent-fp-test" }),
             Some(&user.access_token),
         )
@@ -384,7 +384,7 @@ async fn register_device_twice_idempotent() {
 
     let resp = app
         .post_json(
-            "/account/device/register",
+            "/v1/account/device/register",
             json!({ "fingerprint": "idempotent-fp-test" }),
             Some(&user.access_token),
         )
@@ -393,7 +393,7 @@ async fn register_device_twice_idempotent() {
 
     // Should still show only one device
     let resp = app
-        .get("/account/devices", Some(&user.access_token))
+        .get("/v1/account/devices", Some(&user.access_token))
         .await;
     assert_eq!(resp.status, StatusCode::OK);
     let devices = resp.json().as_array().unwrap().len();

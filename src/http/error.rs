@@ -1,4 +1,4 @@
-use axum::http::StatusCode;
+use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
@@ -7,6 +7,7 @@ use serde::Serialize;
 pub struct AppError {
     status: StatusCode,
     message: String,
+    headers: Vec<(String, String)>,
 }
 
 #[derive(Serialize)]
@@ -19,6 +20,7 @@ impl AppError {
         Self {
             status: StatusCode::BAD_REQUEST,
             message: message.into(),
+            headers: vec![],
         }
     }
 
@@ -26,6 +28,7 @@ impl AppError {
         Self {
             status: StatusCode::NOT_FOUND,
             message: message.into(),
+            headers: vec![],
         }
     }
 
@@ -33,6 +36,7 @@ impl AppError {
         Self {
             status: StatusCode::NOT_IMPLEMENTED,
             message: message.into(),
+            headers: vec![],
         }
     }
 
@@ -40,6 +44,7 @@ impl AppError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             message: message.into(),
+            headers: vec![],
         }
     }
 
@@ -47,6 +52,7 @@ impl AppError {
         Self {
             status: StatusCode::CONFLICT,
             message: message.into(),
+            headers: vec![],
         }
     }
 
@@ -54,6 +60,7 @@ impl AppError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: message.into(),
+            headers: vec![],
         }
     }
 
@@ -61,6 +68,19 @@ impl AppError {
         Self {
             status: StatusCode::TOO_MANY_REQUESTS,
             message: message.into(),
+            headers: vec![],
+        }
+    }
+
+    pub fn rate_limited_with_headers(message: impl Into<String>, limit: u32, remaining: u32) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            message: message.into(),
+            headers: vec![
+                ("X-RateLimit-Limit".to_string(), limit.to_string()),
+                ("X-RateLimit-Remaining".to_string(), remaining.to_string()),
+                ("Retry-After".to_string(), "60".to_string()),
+            ],
         }
     }
 
@@ -68,6 +88,7 @@ impl AppError {
         Self {
             status: StatusCode::FORBIDDEN,
             message: message.into(),
+            headers: vec![],
         }
     }
 }
@@ -77,6 +98,12 @@ impl IntoResponse for AppError {
         let body = Json(ErrorResponse {
             error: self.message,
         });
-        (self.status, body).into_response()
+        let mut response = (self.status, body).into_response();
+        for (name, value) in &self.headers {
+            if let (Ok(n), Ok(v)) = (name.parse::<HeaderName>(), value.parse::<HeaderValue>()) {
+                response.headers_mut().insert(n, v);
+            }
+        }
+        response
     }
 }

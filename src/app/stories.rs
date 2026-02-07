@@ -65,7 +65,7 @@ impl StoryService {
              ) \
              SELECT s.*, u.handle AS user_handle, u.display_name AS user_display_name \
              FROM inserted s \
-             JOIN users u ON s.user_id = u.id",
+             JOIN users u ON s.user_id = u.id AND u.deleted_at IS NULL",
         )
         .bind(user_id)
         .bind(media_id)
@@ -93,7 +93,7 @@ impl StoryService {
                             s.media_id, s.caption, s.created_at, s.expires_at, \
                             s.visibility::text AS visibility, s.view_count, s.reaction_count \
                      FROM stories s \
-                     JOIN users u ON s.user_id = u.id \
+                     JOIN users u ON s.user_id = u.id AND u.deleted_at IS NULL \
                      WHERE s.user_id = $1 \
                        AND s.expires_at > $2 \
                        AND NOT EXISTS ( \
@@ -125,7 +125,7 @@ impl StoryService {
                             s.media_id, s.caption, s.created_at, s.expires_at, \
                             s.visibility::text AS visibility, s.view_count, s.reaction_count \
                      FROM stories s \
-                     JOIN users u ON s.user_id = u.id \
+                     JOIN users u ON s.user_id = u.id AND u.deleted_at IS NULL \
                      WHERE s.user_id = $1 \
                        AND s.expires_at > $2 \
                        AND NOT EXISTS ( \
@@ -160,7 +160,7 @@ impl StoryService {
                     s.media_id, s.caption, s.created_at, s.expires_at, \
                     s.visibility::text AS visibility, s.view_count, s.reaction_count \
              FROM stories s \
-             JOIN users u ON s.user_id = u.id \
+             JOIN users u ON s.user_id = u.id AND u.deleted_at IS NULL \
              WHERE s.id = $1 \
                AND s.expires_at > $2 \
                AND NOT EXISTS ( \
@@ -242,7 +242,7 @@ impl StoryService {
              SELECT r.id, r.story_id, r.user_id, r.emoji, r.created_at, r.is_new, \
                     u.handle AS user_handle \
              FROM upserted r \
-             JOIN users u ON r.user_id = u.id",
+             JOIN users u ON r.user_id = u.id AND u.deleted_at IS NULL",
         )
         .bind(story_id)
         .bind(user_id)
@@ -291,7 +291,7 @@ impl StoryService {
                 sqlx::query(
                     "SELECT r.id, r.story_id, r.user_id, u.handle AS user_handle, r.emoji, r.created_at \
                      FROM story_reactions r \
-                     JOIN users u ON r.user_id = u.id \
+                     JOIN users u ON r.user_id = u.id AND u.deleted_at IS NULL \
                      WHERE r.story_id = $1 \
                        AND (r.created_at < $2 OR (r.created_at = $2 AND r.id < $3)) \
                      ORDER BY r.created_at DESC, r.id DESC \
@@ -308,7 +308,7 @@ impl StoryService {
                 sqlx::query(
                     "SELECT r.id, r.story_id, r.user_id, u.handle AS user_handle, r.emoji, r.created_at \
                      FROM story_reactions r \
-                     JOIN users u ON r.user_id = u.id \
+                     JOIN users u ON r.user_id = u.id AND u.deleted_at IS NULL \
                      WHERE r.story_id = $1 \
                      ORDER BY r.created_at DESC, r.id DESC \
                      LIMIT $2",
@@ -346,7 +346,7 @@ impl StoryService {
                     "SELECT v.viewer_id, u.handle AS viewer_handle, \
                             u.display_name AS viewer_display_name, v.viewed_at \
                      FROM story_views v \
-                     JOIN users u ON v.viewer_id = u.id \
+                     JOIN users u ON v.viewer_id = u.id AND u.deleted_at IS NULL \
                      WHERE v.story_id = $1 \
                        AND (v.viewed_at < $2 OR (v.viewed_at = $2 AND v.viewer_id < $3)) \
                      ORDER BY v.viewed_at DESC, v.viewer_id DESC \
@@ -364,7 +364,7 @@ impl StoryService {
                     "SELECT v.viewer_id, u.handle AS viewer_handle, \
                             u.display_name AS viewer_display_name, v.viewed_at \
                      FROM story_views v \
-                     JOIN users u ON v.viewer_id = u.id \
+                     JOIN users u ON v.viewer_id = u.id AND u.deleted_at IS NULL \
                      WHERE v.story_id = $1 \
                      ORDER BY v.viewed_at DESC, v.viewer_id DESC \
                      LIMIT $2",
@@ -423,7 +423,7 @@ impl StoryService {
             .collect();
 
         let viewer_ids: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT viewer_id FROM story_views WHERE story_id = $1 ORDER BY viewed_at DESC",
+            "SELECT viewer_id FROM story_views WHERE story_id = $1 ORDER BY viewed_at DESC LIMIT 200",
         )
         .bind(story_id)
         .fetch_all(self.db.pool())
@@ -571,11 +571,22 @@ impl StoryService {
         let cache_key = format!("feed:stories:{}:{}", user_id, limit);
 
         if should_cache {
-            if let Ok(mut conn) = self.cache.client().get_multiplexed_async_connection().await {
-                if let Ok(Some(payload)) = conn.get::<_, Option<String>>(&cache_key).await {
-                    if let Ok(stories) = serde_json::from_str::<Vec<Story>>(&payload) {
-                        return Ok(stories);
+            match self.cache.client().get_multiplexed_async_connection().await {
+                Ok(mut conn) => {
+                    match conn.get::<_, Option<String>>(&cache_key).await {
+                        Ok(Some(payload)) => {
+                            if let Ok(stories) = serde_json::from_str::<Vec<Story>>(&payload) {
+                                return Ok(stories);
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(err) => {
+                            tracing::warn!(error = ?err, "failed to read stories feed cache");
+                        }
                     }
+                }
+                Err(err) => {
+                    tracing::warn!(error = ?err, "failed to connect to Redis for stories feed cache");
                 }
             }
         }
@@ -588,7 +599,7 @@ impl StoryService {
                             s.media_id, s.caption, s.created_at, s.expires_at, \
                             s.visibility::text AS visibility, s.view_count, s.reaction_count \
                      FROM stories s \
-                     JOIN users u ON s.user_id = u.id \
+                     JOIN users u ON s.user_id = u.id AND u.deleted_at IS NULL \
                      WHERE s.expires_at > $1 \
                        AND s.user_id IN (SELECT followee_id FROM follows WHERE follower_id = $2) \
                        AND NOT EXISTS ( \
@@ -617,7 +628,7 @@ impl StoryService {
                             s.media_id, s.caption, s.created_at, s.expires_at, \
                             s.visibility::text AS visibility, s.view_count, s.reaction_count \
                      FROM stories s \
-                     JOIN users u ON s.user_id = u.id \
+                     JOIN users u ON s.user_id = u.id AND u.deleted_at IS NULL \
                      WHERE s.expires_at > $1 \
                        AND s.user_id IN (SELECT followee_id FROM follows WHERE follower_id = $2) \
                        AND NOT EXISTS ( \

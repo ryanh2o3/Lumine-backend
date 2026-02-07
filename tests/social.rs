@@ -21,7 +21,7 @@ async fn follow_user() {
 
     let resp = app
         .post_json(
-            &format!("/users/{}/follow", user_b.id),
+            &format!("/v1/users/{}/follow", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -41,7 +41,7 @@ async fn follow_already_following() {
     // Follow once
     let resp = app
         .post_json(
-            &format!("/users/{}/follow", user_b.id),
+            &format!("/v1/users/{}/follow", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -52,7 +52,7 @@ async fn follow_already_following() {
     // Follow again — should be idempotent
     let resp = app
         .post_json(
-            &format!("/users/{}/follow", user_b.id),
+            &format!("/v1/users/{}/follow", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -68,7 +68,7 @@ async fn follow_self() {
 
     let resp = app
         .post_json(
-            &format!("/users/{}/follow", user.id),
+            &format!("/v1/users/{}/follow", user.id),
             json!({}),
             Some(&user.access_token),
         )
@@ -85,7 +85,7 @@ async fn follow_nonexistent_user() {
 
     let resp = app
         .post_json(
-            &format!("/users/{}/follow", Uuid::new_v4()),
+            &format!("/v1/users/{}/follow", Uuid::new_v4()),
             json!({}),
             Some(&user.access_token),
         )
@@ -102,7 +102,7 @@ async fn unfollow_user() {
 
     // Follow first
     app.post_json(
-        &format!("/users/{}/follow", user_b.id),
+        &format!("/v1/users/{}/follow", user_b.id),
         json!({}),
         Some(&user_a.access_token),
     )
@@ -111,7 +111,7 @@ async fn unfollow_user() {
     // Unfollow
     let resp = app
         .post_json(
-            &format!("/users/{}/unfollow", user_b.id),
+            &format!("/v1/users/{}/unfollow", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -129,7 +129,7 @@ async fn unfollow_not_following() {
 
     let resp = app
         .post_json(
-            &format!("/users/{}/unfollow", user_b.id),
+            &format!("/v1/users/{}/unfollow", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -146,7 +146,7 @@ async fn unfollow_self() {
 
     let resp = app
         .post_json(
-            &format!("/users/{}/unfollow", user.id),
+            &format!("/v1/users/{}/unfollow", user.id),
             json!({}),
             Some(&user.access_token),
         )
@@ -164,7 +164,7 @@ async fn list_followers() {
 
     // A follows B
     app.post_json(
-        &format!("/users/{}/follow", user_b.id),
+        &format!("/v1/users/{}/follow", user_b.id),
         json!({}),
         Some(&user_a.access_token),
     )
@@ -172,7 +172,7 @@ async fn list_followers() {
 
     let resp = app
         .get(
-            &format!("/users/{}/followers?limit=10", user_b.id),
+            &format!("/v1/users/{}/followers?limit=10", user_b.id),
             Some(&user_a.access_token),
         )
         .await;
@@ -195,7 +195,7 @@ async fn list_following() {
 
     // A follows B
     app.post_json(
-        &format!("/users/{}/follow", user_b.id),
+        &format!("/v1/users/{}/follow", user_b.id),
         json!({}),
         Some(&user_a.access_token),
     )
@@ -203,7 +203,7 @@ async fn list_following() {
 
     let resp = app
         .get(
-            &format!("/users/{}/following?limit=10", user_a.id),
+            &format!("/v1/users/{}/following?limit=10", user_a.id),
             Some(&user_a.access_token),
         )
         .await;
@@ -230,7 +230,7 @@ async fn block_user() {
 
     let resp = app
         .post_json(
-            &format!("/users/{}/block", user_b.id),
+            &format!("/v1/users/{}/block", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -249,7 +249,7 @@ async fn block_removes_follow() {
     // A follows B
     let resp = app
         .post_json(
-            &format!("/users/{}/follow", user_b.id),
+            &format!("/v1/users/{}/follow", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -258,7 +258,7 @@ async fn block_removes_follow() {
 
     // A blocks B — should remove the follow relationship
     app.post_json(
-        &format!("/users/{}/block", user_b.id),
+        &format!("/v1/users/{}/block", user_b.id),
         json!({}),
         Some(&user_a.access_token),
     )
@@ -267,7 +267,7 @@ async fn block_removes_follow() {
     // Verify A is no longer following B
     let resp = app
         .get(
-            &format!("/users/{}/relationship", user_b.id),
+            &format!("/v1/users/{}/relationship", user_b.id),
             Some(&user_a.access_token),
         )
         .await;
@@ -285,7 +285,7 @@ async fn blocked_user_cannot_follow() {
 
     // A blocks B
     app.post_json(
-        &format!("/users/{}/block", user_b.id),
+        &format!("/v1/users/{}/block", user_b.id),
         json!({}),
         Some(&user_a.access_token),
     )
@@ -294,7 +294,7 @@ async fn blocked_user_cannot_follow() {
     // B tries to follow A — should fail because of block
     let resp = app
         .post_json(
-            &format!("/users/{}/follow", user_a.id),
+            &format!("/v1/users/{}/follow", user_a.id),
             json!({}),
             Some(&user_b.access_token),
         )
@@ -311,7 +311,7 @@ async fn block_self() {
 
     let resp = app
         .post_json(
-            &format!("/users/{}/block", user.id),
+            &format!("/v1/users/{}/block", user.id),
             json!({}),
             Some(&user.access_token),
         )
@@ -329,7 +329,7 @@ async fn unblock_user() {
 
     // Block first
     app.post_json(
-        &format!("/users/{}/block", user_b.id),
+        &format!("/v1/users/{}/block", user_b.id),
         json!({}),
         Some(&user_a.access_token),
     )
@@ -338,7 +338,7 @@ async fn unblock_user() {
     // Unblock
     let resp = app
         .post_json(
-            &format!("/users/{}/unblock", user_b.id),
+            &format!("/v1/users/{}/unblock", user_b.id),
             json!({}),
             Some(&user_a.access_token),
         )
@@ -356,7 +356,7 @@ async fn relationship_status() {
 
     // A follows B
     app.post_json(
-        &format!("/users/{}/follow", user_b.id),
+        &format!("/v1/users/{}/follow", user_b.id),
         json!({}),
         Some(&user_a.access_token),
     )
@@ -364,7 +364,7 @@ async fn relationship_status() {
 
     let resp = app
         .get(
-            &format!("/users/{}/relationship", user_b.id),
+            &format!("/v1/users/{}/relationship", user_b.id),
             Some(&user_a.access_token),
         )
         .await;
@@ -384,7 +384,7 @@ async fn relationship_status_self() {
 
     let resp = app
         .get(
-            &format!("/users/{}/relationship", user.id),
+            &format!("/v1/users/{}/relationship", user.id),
             Some(&user.access_token),
         )
         .await;
@@ -413,7 +413,7 @@ async fn blocked_user_cannot_see_posts() {
     // Verify B can see A's post
     let resp = app
         .get(
-            &format!("/posts/{}", post_id),
+            &format!("/v1/posts/{}", post_id),
             Some(&user_b.access_token),
         )
         .await;
@@ -421,7 +421,7 @@ async fn blocked_user_cannot_see_posts() {
 
     // A blocks B
     app.post_json(
-        &format!("/users/{}/block", user_b.id),
+        &format!("/v1/users/{}/block", user_b.id),
         json!({}),
         Some(&user_a.access_token),
     )
@@ -430,7 +430,7 @@ async fn blocked_user_cannot_see_posts() {
     // B can no longer see A's post
     let resp = app
         .get(
-            &format!("/posts/{}", post_id),
+            &format!("/v1/posts/{}", post_id),
             Some(&user_b.access_token),
         )
         .await;
@@ -450,7 +450,7 @@ async fn blocked_user_hidden_in_search() {
     // Verify B can find A in search before blocking
     let resp = app
         .get(
-            &format!("/search/users?q={}", user_a.handle),
+            &format!("/v1/search/users?q={}", user_a.handle),
             Some(&user_b.access_token),
         )
         .await;
@@ -458,7 +458,7 @@ async fn blocked_user_hidden_in_search() {
 
     // B blocks A
     app.post_json(
-        &format!("/users/{}/block", user_a.id),
+        &format!("/v1/users/{}/block", user_a.id),
         json!({}),
         Some(&user_b.access_token),
     )
@@ -467,7 +467,7 @@ async fn blocked_user_hidden_in_search() {
     // Search for A as B — A should not appear
     let resp = app
         .get(
-            &format!("/search/users?q={}", user_a.handle),
+            &format!("/v1/search/users?q={}", user_a.handle),
             Some(&user_b.access_token),
         )
         .await;

@@ -1,0 +1,7 @@
+target/
+.git/
+docker/
+*.md
+.env
+.github/
+tests/

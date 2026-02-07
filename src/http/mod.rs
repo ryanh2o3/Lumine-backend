@@ -4,6 +4,7 @@ use axum::{
 };
 use tower_http::compression::CompressionLayer;
 use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
 use crate::AppState;
 
@@ -17,8 +18,8 @@ pub use auth::{AdminToken, AuthUser};
 pub use error::AppError;
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
-        .merge(routes::health())
+    // M8: Versioned API routes under /v1
+    let v1_routes = Router::new()
         // Auth routes with IP rate limiting
         .merge(
             routes::auth()
@@ -27,9 +28,13 @@ pub fn router(state: AppState) -> Router {
                     middleware::rate_limit::ip_rate_limit_middleware,
                 ))
         )
-        // User routes with rate limiting
+        // User routes with rate limiting + IP rate limiting for signup
         .merge(
             routes::users()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit::ip_rate_limit_middleware,
+                ))
                 .layer(axum_middleware::from_fn_with_state(
                     state.clone(),
                     middleware::rate_limit::rate_limit_middleware,
@@ -125,9 +130,18 @@ pub fn router(state: AppState) -> Router {
                     state.clone(),
                     middleware::ban::ban_check_middleware,
                 ))
-        )
+        );
+
+    Router::new()
+        // Health and metrics at root (no version prefix)
+        .merge(routes::health())
+        // All API routes under /v1
+        .nest("/v1", v1_routes)
         .with_state(state)
         // Global middleware layers (applied to all routes)
+        // M3: Request ID
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+        .layer(PropagateRequestIdLayer::x_request_id())
         // Security headers and HTTPS enforcement
         .layer(axum_middleware::from_fn(
             middleware::security::security_headers_middleware,

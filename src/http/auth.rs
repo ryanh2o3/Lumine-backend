@@ -2,6 +2,7 @@ use axum::extract::FromRequestParts;
 use axum::http::header;
 use axum::http::HeaderName;
 use axum::http::request::Parts;
+use subtle::ConstantTimeEq;
 
 use crate::app::auth::AuthService;
 use crate::http::AppError;
@@ -47,7 +48,7 @@ impl FromRequestParts<AppState> for AuthUser {
         let session = service
             .authenticate_access_token(token)
             .await
-            .map_err(|_| AppError::internal("failed to authenticate"))?;
+            .map_err(|_| AppError::unauthorized("invalid or expired token"))?;
 
         let session = session.ok_or_else(|| AppError::unauthorized("invalid token"))?;
         Ok(AuthUser {
@@ -75,7 +76,8 @@ impl FromRequestParts<AppState> for AdminToken {
             .and_then(|value| value.to_str().ok())
             .ok_or_else(|| AppError::forbidden("missing admin token"))?;
 
-        if provided != expected {
+        let is_valid: bool = provided.as_bytes().ct_eq(expected.as_bytes()).into();
+        if !is_valid {
             return Err(AppError::forbidden("invalid admin token"));
         }
 

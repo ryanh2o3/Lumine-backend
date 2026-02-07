@@ -110,7 +110,7 @@ impl AuthService {
     pub async fn login(&self, identifier: &str, password: &str) -> Result<Option<TokenPair>> {
         let row = sqlx::query(
             "SELECT id, password_hash \
-             FROM users WHERE email = $1 OR handle = $1",
+             FROM users WHERE (email = $1 OR handle = $1) AND deleted_at IS NULL",
         )
         .bind(identifier)
         .fetch_optional(self.db.pool())
@@ -214,7 +214,7 @@ impl AuthService {
     pub async fn get_current_user(&self, user_id: Uuid) -> Result<Option<User>> {
         let row = sqlx::query(
             "SELECT id, handle, email, display_name, bio, avatar_key, created_at \
-             FROM users WHERE id = $1",
+             FROM users WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(user_id)
         .fetch_optional(self.db.pool())

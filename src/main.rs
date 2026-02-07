@@ -27,7 +27,6 @@ async fn main() -> anyhow::Result<()> {
         cache,
         storage,
         queue,
-        auth_token_ttl_hours: config.auth_token_ttl_hours,
         upload_url_ttl_seconds: config.upload_url_ttl_seconds,
         upload_max_bytes: config.upload_max_bytes,
         admin_token: config.admin_token.clone(),
@@ -40,6 +39,45 @@ async fn main() -> anyhow::Result<()> {
 
     match config.app_mode.as_str() {
         "api" => {
+            // H7: Spawn background cleanup task for expired data
+            let cleanup_db = state.db.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+                loop {
+                    interval.tick().await;
+                    // Clean up expired stories (and cascaded views/reactions) older than 48h
+                    match sqlx::query(
+                        "DELETE FROM stories WHERE expires_at < now() - interval '48 hours'",
+                    )
+                    .execute(cleanup_db.pool())
+                    .await
+                    {
+                        Ok(result) => {
+                            if result.rows_affected() > 0 {
+                                tracing::info!(
+                                    count = result.rows_affected(),
+                                    "cleaned up expired stories"
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            tracing::warn!(error = ?err, "failed to clean up expired stories");
+                        }
+                    }
+
+                    // Clean up expired invites
+                    match sqlx::query("SELECT cleanup_expired_invites()")
+                        .execute(cleanup_db.pool())
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(err) => {
+                            tracing::warn!(error = ?err, "failed to clean up expired invites");
+                        }
+                    }
+                }
+            });
+
             let app: Router = ciel::http::router(state).layer(TraceLayer::new_for_http());
             let listener = tokio::net::TcpListener::bind(&config.http_addr).await?;
             tracing::info!("listening on {}", config.http_addr);

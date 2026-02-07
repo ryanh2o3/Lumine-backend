@@ -207,7 +207,6 @@ impl TestApp {
             cache,
             storage,
             queue,
-            auth_token_ttl_hours: config.auth_token_ttl_hours,
             upload_url_ttl_seconds: config.upload_url_ttl_seconds,
             upload_max_bytes: config.upload_max_bytes,
             admin_token: config.admin_token.clone(),

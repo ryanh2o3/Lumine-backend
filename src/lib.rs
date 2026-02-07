@@ -13,7 +13,6 @@ pub struct AppState {
     pub cache: RedisCache,
     pub storage: ObjectStorage,
     pub queue: QueueClient,
-    pub auth_token_ttl_hours: u64,
     pub upload_url_ttl_seconds: u64,
     pub upload_max_bytes: i64,
     pub admin_token: Option<String>,

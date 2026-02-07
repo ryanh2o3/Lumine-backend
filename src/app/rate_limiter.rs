@@ -5,6 +5,12 @@ use uuid::Uuid;
 use crate::config::rate_limits::{current_window, RateLimits, RateWindow, TrustLevel};
 use crate::infra::cache::RedisCache;
 
+pub struct RateLimitInfo {
+    pub limited: bool,
+    pub limit: u32,
+    pub remaining: u32,
+}
+
 #[derive(Clone)]
 pub struct RateLimiter {
     cache: RedisCache,
@@ -15,13 +21,13 @@ impl RateLimiter {
         Self { cache }
     }
 
-    /// Check if action is rate limited, returns true if limit exceeded
+    /// Rate limit check result with quota information for response headers.
     pub async fn check_rate_limit(
         &self,
         user_id: Uuid,
         action: &str,
         trust_level: TrustLevel,
-    ) -> Result<bool> {
+    ) -> Result<RateLimitInfo> {
         let limits = RateLimits::for_trust_level(trust_level);
 
         // Check both hourly and daily limits where applicable
@@ -43,10 +49,14 @@ impl RateLimiter {
             "search" => vec![(limits.search_requests_per_hour, RateWindow::Hour)],
             "media" => vec![(limits.media_requests_per_hour, RateWindow::Hour)],
             "moderation" => vec![(limits.moderation_actions_per_hour, RateWindow::Hour)],
-            _ => return Ok(false), // Unknown action, don't rate limit
+            _ => return Ok(RateLimitInfo { limited: false, limit: 0, remaining: 0 }),
         };
 
         let mut conn = self.cache.client().get_multiplexed_async_connection().await?;
+
+        // Track the tightest (most constrained) window for response headers
+        let mut min_remaining = u32::MAX;
+        let mut effective_limit: u32 = 0;
 
         // Check all applicable windows
         for (limit, window) in checks {
@@ -59,6 +69,12 @@ impl RateLimiter {
             );
 
             let count: u32 = conn.get(&key).await.unwrap_or(0);
+            let remaining = limit.saturating_sub(count);
+
+            if remaining < min_remaining {
+                min_remaining = remaining;
+                effective_limit = limit;
+            }
 
             if count >= limit {
                 tracing::debug!(
@@ -69,11 +85,15 @@ impl RateLimiter {
                     limit = limit,
                     "Rate limit exceeded"
                 );
-                return Ok(true); // Rate limited
+                return Ok(RateLimitInfo { limited: true, limit, remaining: 0 });
             }
         }
 
-        Ok(false)
+        Ok(RateLimitInfo {
+            limited: false,
+            limit: effective_limit,
+            remaining: min_remaining,
+        })
     }
 
     /// Increment rate limit counter for an action

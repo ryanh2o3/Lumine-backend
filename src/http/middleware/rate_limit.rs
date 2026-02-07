@@ -1,4 +1,5 @@
 use axum::extract::{ConnectInfo, Request, State};
+use axum::http::HeaderValue;
 use axum::middleware::Next;
 use axum::response::Response;
 use std::net::SocketAddr;
@@ -55,7 +56,7 @@ pub async fn rate_limit_middleware(
 
             // Check rate limit
             let rate_limiter = RateLimiter::new(state.cache.clone());
-            let is_limited = rate_limiter
+            let info = rate_limiter
                 .check_rate_limit(auth_user.user_id, action, trust_level)
                 .await
                 .map_err(|err| {
@@ -63,17 +64,29 @@ pub async fn rate_limit_middleware(
                     AppError::internal("failed to check rate limit")
                 })?;
 
-            if is_limited {
-                return Err(AppError::rate_limited(&format!(
-                    "Rate limit exceeded for action: {}. Please try again later.",
-                    action
-                )));
+            if info.limited {
+                return Err(AppError::rate_limited_with_headers(
+                    &format!("Rate limit exceeded for action: {}. Please try again later.", action),
+                    info.limit,
+                    0,
+                ));
             }
 
             // Increment counter after successful check
             if let Err(err) = rate_limiter.increment(auth_user.user_id, action).await {
                 tracing::warn!(error = ?err, "failed to increment rate limit counter");
             }
+
+            // M5: Add rate limit headers to the response
+            let mut response = next.run(request).await;
+            let headers = response.headers_mut();
+            if let Ok(v) = HeaderValue::from_str(&info.limit.to_string()) {
+                headers.insert("X-RateLimit-Limit", v);
+            }
+            if let Ok(v) = HeaderValue::from_str(&info.remaining.saturating_sub(1).to_string()) {
+                headers.insert("X-RateLimit-Remaining", v);
+            }
+            return Ok(response);
         }
     }
 
@@ -121,8 +134,10 @@ pub async fn ip_rate_limit_middleware(
             action = action,
             "IP rate limit exceeded"
         );
-        return Err(AppError::rate_limited(
+        return Err(AppError::rate_limited_with_headers(
             "Too many attempts from your IP address. Please try again later.",
+            limit,
+            0,
         ));
     }
 

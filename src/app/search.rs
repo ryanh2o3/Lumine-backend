@@ -30,6 +30,7 @@ impl SearchService {
                     "SELECT id, handle, email, display_name, bio, avatar_key, created_at \
                      FROM users \
                      WHERE (handle ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\') \
+                       AND deleted_at IS NULL \
                        AND (created_at < $2 OR (created_at = $2 AND id < $3)) \
                      ORDER BY created_at DESC, id DESC \
                      LIMIT $4",
@@ -45,7 +46,8 @@ impl SearchService {
                 sqlx::query(
                     "SELECT id, handle, email, display_name, bio, avatar_key, created_at \
                      FROM users \
-                     WHERE handle ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\' \
+                     WHERE (handle ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\') \
+                       AND deleted_at IS NULL \
                      ORDER BY created_at DESC, id DESC \
                      LIMIT $2",
                 )

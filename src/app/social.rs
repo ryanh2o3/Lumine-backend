@@ -35,7 +35,7 @@ impl SocialService {
 
         let mut tx = self.db.pool().begin().await?;
 
-        let user_exists = sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+        let user_exists = sqlx::query("SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE")
             .bind(followee_id)
             .fetch_optional(&mut *tx)
             .await?;
@@ -144,6 +144,7 @@ impl SocialService {
                      FROM follows f \
                      JOIN users u ON u.id = f.follower_id \
                      WHERE f.followee_id = $1 \
+                       AND u.deleted_at IS NULL \
                        AND (f.created_at < $2 OR (f.created_at = $2 AND f.follower_id < $3)) \
                      ORDER BY f.created_at DESC, f.follower_id DESC \
                      LIMIT $4",
@@ -162,6 +163,7 @@ impl SocialService {
                      FROM follows f \
                      JOIN users u ON u.id = f.follower_id \
                      WHERE f.followee_id = $1 \
+                       AND u.deleted_at IS NULL \
                      ORDER BY f.created_at DESC, f.follower_id DESC \
                      LIMIT $2",
                 )
@@ -207,6 +209,7 @@ impl SocialService {
                      FROM follows f \
                      JOIN users u ON u.id = f.followee_id \
                      WHERE f.follower_id = $1 \
+                       AND u.deleted_at IS NULL \
                        AND (f.created_at < $2 OR (f.created_at = $2 AND f.followee_id < $3)) \
                      ORDER BY f.created_at DESC, f.followee_id DESC \
                      LIMIT $4",
@@ -225,6 +228,7 @@ impl SocialService {
                      FROM follows f \
                      JOIN users u ON u.id = f.followee_id \
                      WHERE f.follower_id = $1 \
+                       AND u.deleted_at IS NULL \
                      ORDER BY f.created_at DESC, f.followee_id DESC \
                      LIMIT $2",
                 )
