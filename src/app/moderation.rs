@@ -57,7 +57,7 @@ impl ModerationService {
 
     pub async fn takedown_post(
         &self,
-        actor_id: Uuid,
+        actor_id: Option<Uuid>,
         post_id: Uuid,
         reason: Option<String>,
     ) -> Result<bool> {
@@ -88,7 +88,7 @@ impl ModerationService {
 
     pub async fn takedown_comment(
         &self,
-        actor_id: Uuid,
+        actor_id: Option<Uuid>,
         comment_id: Uuid,
         reason: Option<String>,
     ) -> Result<bool> {
@@ -154,7 +154,7 @@ impl ModerationService {
         for row in rows {
             actions.push(ModerationAction {
                 id: row.get("id"),
-                actor_id: row.get("actor_id"),
+                actor_id: row.get::<Option<Uuid>, _>("actor_id"),
                 target_type: row.get("target_type"),
                 target_id: row.get("target_id"),
                 reason: row.get("reason"),

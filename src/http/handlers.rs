@@ -1334,18 +1334,19 @@ pub async fn flag_user(
 }
 
 pub async fn takedown_post(
-    auth: AuthUser,
+    auth: Option<AuthUser>,
     _admin: AdminToken,
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
     Json(payload): Json<ModerationRequest>,
 ) -> Result<StatusCode, AppError> {
+    let actor_id = auth.map(|a| a.user_id);
     let service = ModerationService::new(state.db.clone());
     let removed = service
-        .takedown_post(auth.user_id, id, payload.reason)
+        .takedown_post(actor_id, id, payload.reason)
         .await
         .map_err(|err| {
-            tracing::error!(error = ?err, actor_id = %auth.user_id, post_id = %id, "failed to takedown post");
+            tracing::error!(error = ?err, actor_id = ?actor_id, post_id = %id, "failed to takedown post");
             AppError::internal("failed to takedown post")
         })?;
 
@@ -1357,18 +1358,19 @@ pub async fn takedown_post(
 }
 
 pub async fn takedown_comment(
-    auth: AuthUser,
+    auth: Option<AuthUser>,
     _admin: AdminToken,
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
     Json(payload): Json<ModerationRequest>,
 ) -> Result<StatusCode, AppError> {
+    let actor_id = auth.map(|a| a.user_id);
     let service = ModerationService::new(state.db.clone());
     let removed = service
-        .takedown_comment(auth.user_id, id, payload.reason)
+        .takedown_comment(actor_id, id, payload.reason)
         .await
         .map_err(|err| {
-            tracing::error!(error = ?err, actor_id = %auth.user_id, comment_id = %id, "failed to takedown comment");
+            tracing::error!(error = ?err, actor_id = ?actor_id, comment_id = %id, "failed to takedown comment");
             AppError::internal("failed to takedown comment")
         })?;
 
@@ -1380,7 +1382,6 @@ pub async fn takedown_comment(
 }
 
 pub async fn list_moderation_audit(
-    _auth: AuthUser,
     _admin: AdminToken,
     State(state): State<AppState>,
     Query(query): Query<PaginationQuery>,
