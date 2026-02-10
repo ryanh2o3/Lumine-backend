@@ -45,23 +45,18 @@ resource "scaleway_vpc_public_gateway_ip_reverse_dns" "main" {
   zone          = var.zone
 }
 
-# DHCP configuration for private network
-resource "scaleway_vpc_public_gateway_dhcp" "main" {
-  count = var.enable_public_gateway ? 1 : 0
-
-  subnet = var.private_network_cidr
-  zone   = var.zone
-}
-
 # Connect private network to public gateway
 resource "scaleway_vpc_gateway_network" "main" {
   count = var.enable_public_gateway ? 1 : 0
 
   gateway_id         = scaleway_vpc_public_gateway.main[0].id
   private_network_id = scaleway_vpc_private_network.main.id
-  dhcp_id            = scaleway_vpc_public_gateway_dhcp.main[0].id
   enable_masquerade  = true
   zone               = var.zone
+
+  ipam_config {
+    push_default_route = true
+  }
 }
 
 # Security Group for API instances
