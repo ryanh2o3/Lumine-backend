@@ -21,4 +21,5 @@ pub struct AppState {
     pub access_ttl_minutes: u64,
     pub refresh_ttl_days: u64,
     pub s3_public_endpoint: Option<String>,
+    pub ip_signup_rate_limit: u32,
 }

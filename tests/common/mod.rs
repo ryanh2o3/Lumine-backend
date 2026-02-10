@@ -228,6 +228,7 @@ impl TestApp {
             access_ttl_minutes: config.access_ttl_minutes,
             refresh_ttl_days: config.refresh_ttl_days,
             s3_public_endpoint: config.s3_public_endpoint,
+            ip_signup_rate_limit: 100,
         };
 
         let router = ciel::http::router(state.clone());

@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
         access_ttl_minutes: config.access_ttl_minutes,
         refresh_ttl_days: config.refresh_ttl_days,
         s3_public_endpoint: config.s3_public_endpoint,
+        ip_signup_rate_limit: config.ip_signup_rate_limit,
     };
 
     match config.app_mode.as_str() {

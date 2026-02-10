@@ -30,6 +30,7 @@ pub struct AppConfig {
     pub paseto_refresh_key: [u8; 32],
     pub access_ttl_minutes: u64,
     pub refresh_ttl_days: u64,
+    pub ip_signup_rate_limit: u32,
 }
 
 impl AppConfig {
@@ -65,6 +66,7 @@ impl AppConfig {
             paseto_refresh_key: env_key_32("PASETO_REFRESH_KEY")?,
             access_ttl_minutes: env_or_parse("ACCESS_TTL_MINUTES", "15")?,
             refresh_ttl_days: env_or_parse("REFRESH_TTL_DAYS", "30")?,
+            ip_signup_rate_limit: env_or_parse("IP_SIGNUP_RATE_LIMIT", "3")?,
         })
     }
 }

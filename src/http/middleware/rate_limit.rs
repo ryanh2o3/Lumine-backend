@@ -106,7 +106,7 @@ pub async fn ip_rate_limit_middleware(
     // Determine if this is a sensitive unauthenticated endpoint
     let rate_limit_config = match (path, method.as_str()) {
         ("/auth/login", "POST") => Some(("login", 10, RateWindow::Hour)),
-        ("/users", "POST") => Some(("signup", 3, RateWindow::Day)),
+        ("/users", "POST") => Some(("signup", state.ip_signup_rate_limit, RateWindow::Day)),
         _ => None,
     };
 
