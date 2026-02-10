@@ -85,3 +85,15 @@ variable "enable_dns" {
   type        = bool
   default     = true
 }
+
+variable "scw_secret_key" {
+  description = "Scaleway secret key (for IAM-scoped cloud-init secret fetching)"
+  type        = string
+  sensitive   = true
+}
+
+variable "alert_contact_emails" {
+  description = "Email addresses for alerting"
+  type        = list(string)
+  default     = []
+}

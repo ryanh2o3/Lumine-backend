@@ -7,7 +7,7 @@ terraform {
     key      = "dev/terraform.tfstate"
     region   = "fr-par"
     endpoint = "https://s3.fr-par.scw.cloud"
-    encrypt  = true
+    encrypt  = false
     use_lockfile = true
 
     # Skip validations since we're using Scaleway S3-compatible endpoint
