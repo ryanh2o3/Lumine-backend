@@ -13,6 +13,10 @@ pub struct Post {
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     pub visibility: PostVisibility,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_avatar_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

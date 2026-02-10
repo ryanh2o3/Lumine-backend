@@ -86,6 +86,7 @@ impl SearchService {
             Some((created_at, post_id)) => {
                 sqlx::query(
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                            u.avatar_key AS owner_avatar_key, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
                      JOIN users u ON p.owner_id = u.id \
@@ -105,6 +106,7 @@ impl SearchService {
             None => {
                 sqlx::query(
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                            u.avatar_key AS owner_avatar_key, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
                      JOIN users u ON p.owner_id = u.id \
@@ -133,6 +135,8 @@ impl SearchService {
                 caption: row.get("caption"),
                 visibility,
                 created_at: row.get("created_at"),
+                owner_avatar_key: row.get("owner_avatar_key"),
+                owner_avatar_url: None,
             });
         }
 

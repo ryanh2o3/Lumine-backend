@@ -266,13 +266,13 @@ pub async fn get_user(
     State(state): State<AppState>,
 ) -> Result<Json<crate::domain::user::PublicUser>, AppError> {
     let service = UserService::new(state.db.clone());
-    let user = service.get_user(id).await.map_err(|err| {
+    let result = service.get_public_user_with_counts(id).await.map_err(|err| {
         tracing::error!(error = ?err, user_id = %id, "failed to fetch user");
         AppError::internal("failed to fetch user")
     })?;
 
-    match user {
-        Some(mut user) => {
+    match result {
+        Some((mut user, followers_count, following_count, posts_count)) => {
             let media_svc = MediaService::new(
                 state.db.clone(),
                 state.cache.clone(),
@@ -281,7 +281,11 @@ pub async fn get_user(
                 state.s3_public_endpoint.clone(),
             );
             media_svc.populate_user_avatar_url(&mut user).await;
-            Ok(Json(user.into()))
+            let mut public_user: crate::domain::user::PublicUser = user.into();
+            public_user.followers_count = followers_count;
+            public_user.following_count = following_count;
+            public_user.posts_count = posts_count;
+            Ok(Json(public_user))
         }
         None => Err(AppError::not_found("user not found")),
     }
@@ -508,6 +512,15 @@ pub async fn list_user_posts(
     } else {
         None
     };
+
+    let media_svc = MediaService::new(
+        state.db.clone(),
+        state.cache.clone(),
+        state.storage.clone(),
+        state.queue.clone(),
+        state.s3_public_endpoint.clone(),
+    );
+    media_svc.populate_post_avatar_urls(&mut posts).await;
 
     Ok(Json(ListResponse {
         items: posts,
@@ -800,6 +813,16 @@ pub async fn create_post(
         tracing::warn!(error = ?err, user_id = %auth.user_id, "failed to invalidate feed cache after post creation");
     }
 
+    let media_svc = MediaService::new(
+        state.db.clone(),
+        state.cache.clone(),
+        state.storage.clone(),
+        state.queue.clone(),
+        state.s3_public_endpoint.clone(),
+    );
+    let mut post = post;
+    media_svc.populate_post_avatar_urls(std::slice::from_mut(&mut post)).await;
+
     Ok(Json(post))
 }
 
@@ -816,7 +839,17 @@ pub async fn get_post(
     })?;
 
     match post {
-        Some(post) => Ok(Json(post)),
+        Some(mut post) => {
+            let media_svc = MediaService::new(
+                state.db.clone(),
+                state.cache.clone(),
+                state.storage.clone(),
+                state.queue.clone(),
+                state.s3_public_endpoint.clone(),
+            );
+            media_svc.populate_post_avatar_urls(std::slice::from_mut(&mut post)).await;
+            Ok(Json(post))
+        }
         None => Err(AppError::not_found("post not found")),
     }
 }
@@ -848,7 +881,17 @@ pub async fn update_post_caption(
         })?;
 
     match post {
-        Some(post) => Ok(Json(post)),
+        Some(mut post) => {
+            let media_svc = MediaService::new(
+                state.db.clone(),
+                state.cache.clone(),
+                state.storage.clone(),
+                state.queue.clone(),
+                state.s3_public_endpoint.clone(),
+            );
+            media_svc.populate_post_avatar_urls(std::slice::from_mut(&mut post)).await;
+            Ok(Json(post))
+        }
         None => Err(AppError::not_found("post not found")),
     }
 }
@@ -1099,13 +1142,22 @@ pub async fn home_feed(
     let cursor = parse_cursor(query.cursor)?;
 
     let service = FeedService::new(state.db.clone(), state.cache.clone());
-    let (posts, next_cursor) = service
+    let (mut posts, next_cursor) = service
         .get_home_feed(auth.user_id, cursor, limit)
         .await
         .map_err(|err| {
             tracing::error!(error = ?err, user_id = %auth.user_id, "failed to fetch home feed");
             AppError::internal("failed to fetch home feed")
         })?;
+
+    let media_svc = MediaService::new(
+        state.db.clone(),
+        state.cache.clone(),
+        state.storage.clone(),
+        state.queue.clone(),
+        state.s3_public_endpoint.clone(),
+    );
+    media_svc.populate_post_avatar_urls(&mut posts).await;
 
     Ok(Json(ListResponse {
         items: posts,
@@ -1496,6 +1548,15 @@ pub async fn search_posts(
     } else {
         None
     };
+
+    let media_svc = MediaService::new(
+        state.db.clone(),
+        state.cache.clone(),
+        state.storage.clone(),
+        state.queue.clone(),
+        state.s3_public_endpoint.clone(),
+    );
+    media_svc.populate_post_avatar_urls(&mut posts).await;
 
     Ok(Json(ListResponse {
         items: posts,

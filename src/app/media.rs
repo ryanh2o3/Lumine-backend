@@ -431,6 +431,27 @@ impl MediaService {
         }
     }
 
+    /// Populate owner_avatar_url for posts from owner_avatar_key
+    pub async fn populate_post_avatar_urls(&self, posts: &mut [crate::domain::post::Post]) {
+        let futures: Vec<_> = posts
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.owner_avatar_key.is_some())
+            .map(|(i, p)| {
+                let key = p.owner_avatar_key.as_deref().map(|k| k.to_string());
+                async move {
+                    let url = self.generate_presigned_get_url(key.as_deref(), 14400).await;
+                    (i, url)
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(futures).await;
+        for (i, url) in results {
+            posts[i].owner_avatar_url = url;
+        }
+    }
+
     /// Populate user_avatar_url for stories from user_avatar_key
     pub async fn populate_story_avatar_urls(&self, stories: &mut [crate::domain::story::Story]) {
         let futures: Vec<_> = stories

@@ -39,6 +39,38 @@ impl UserService {
     }
 
 
+    pub async fn get_public_user_with_counts(&self, user_id: Uuid) -> Result<Option<(User, i64, i64, i64)>> {
+        let row = sqlx::query(
+            "SELECT u.id, u.handle, u.email, u.display_name, u.bio, u.avatar_key, u.created_at, \
+                    (SELECT COUNT(*) FROM follows WHERE followee_id = u.id) AS followers_count, \
+                    (SELECT COUNT(*) FROM follows WHERE follower_id = u.id) AS following_count, \
+                    (SELECT COUNT(*) FROM posts WHERE owner_id = u.id) AS posts_count \
+             FROM users u WHERE u.id = $1 AND u.deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        let result = row.map(|row| {
+            let user = User {
+                id: row.get("id"),
+                handle: row.get("handle"),
+                email: row.get("email"),
+                display_name: row.get("display_name"),
+                bio: row.get("bio"),
+                avatar_key: row.get("avatar_key"),
+                avatar_url: None,
+                created_at: row.get("created_at"),
+            };
+            let followers_count: i64 = row.get("followers_count");
+            let following_count: i64 = row.get("following_count");
+            let posts_count: i64 = row.get("posts_count");
+            (user, followers_count, following_count, posts_count)
+        });
+
+        Ok(result)
+    }
+
     pub async fn update_profile(
         &self,
         user_id: Uuid,

@@ -42,7 +42,8 @@ impl PostService {
                 VALUES ($1, $2, $3, $4::post_visibility) \
                 RETURNING id, owner_id, media_id, caption, visibility::text AS visibility, created_at \
              ) \
-             SELECT p.*, u.handle AS owner_handle, u.display_name AS owner_display_name \
+             SELECT p.*, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                    u.avatar_key AS owner_avatar_key \
              FROM inserted_post p \
              JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL",
         )
@@ -67,6 +68,8 @@ impl PostService {
             caption: row.get("caption"),
             visibility,
             created_at: row.get("created_at"),
+            owner_avatar_key: row.get("owner_avatar_key"),
+            owner_avatar_url: None,
         })
     }
 
@@ -75,6 +78,7 @@ impl PostService {
             Some(viewer_id) => {
                 sqlx::query(
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                            u.avatar_key AS owner_avatar_key, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
                      JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
@@ -98,6 +102,7 @@ impl PostService {
             None => {
                 sqlx::query(
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                            u.avatar_key AS owner_avatar_key, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
                      JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
@@ -123,6 +128,8 @@ impl PostService {
                     caption: row.get("caption"),
                     visibility,
                     created_at: row.get("created_at"),
+                    owner_avatar_key: row.get("owner_avatar_key"),
+                    owner_avatar_url: None,
                 })
             }
             None => None,
@@ -144,7 +151,8 @@ impl PostService {
                 WHERE id = $1 AND owner_id = $2 \
                 RETURNING id, owner_id, media_id, caption, visibility::text AS visibility, created_at \
              ) \
-             SELECT p.*, u.handle AS owner_handle, u.display_name AS owner_display_name \
+             SELECT p.*, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                    u.avatar_key AS owner_avatar_key \
              FROM updated_post p \
              JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL",
         )
@@ -168,6 +176,8 @@ impl PostService {
                     caption: row.get("caption"),
                     visibility,
                     created_at: row.get("created_at"),
+                    owner_avatar_key: row.get("owner_avatar_key"),
+                    owner_avatar_url: None,
                 })
             }
             None => None,
@@ -198,6 +208,7 @@ impl PostService {
                 Some((created_at, post_id)) => {
                     sqlx::query(
                         "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                                u.avatar_key AS owner_avatar_key, \
                                 p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                          FROM posts p \
                          JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
@@ -227,6 +238,7 @@ impl PostService {
                 None => {
                     sqlx::query(
                     "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                            u.avatar_key AS owner_avatar_key, \
                             p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                      FROM posts p \
                      JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
@@ -255,6 +267,7 @@ impl PostService {
                 Some((created_at, post_id)) => {
                     sqlx::query(
                         "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                                u.avatar_key AS owner_avatar_key, \
                                 p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                          FROM posts p \
                          JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
@@ -274,6 +287,7 @@ impl PostService {
                 None => {
                     sqlx::query(
                         "SELECT p.id, p.owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, \
+                                u.avatar_key AS owner_avatar_key, \
                                 p.media_id, p.caption, p.visibility::text AS visibility, p.created_at \
                          FROM posts p \
                          JOIN users u ON p.owner_id = u.id AND u.deleted_at IS NULL \
@@ -303,6 +317,8 @@ impl PostService {
                 caption: row.get("caption"),
                 visibility,
                 created_at: row.get("created_at"),
+                owner_avatar_key: row.get("owner_avatar_key"),
+                owner_avatar_url: None,
             });
         }
 

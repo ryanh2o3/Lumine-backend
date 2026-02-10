@@ -187,6 +187,12 @@ impl TestApp {
         std::env::set_var("APP_MODE", "api");
         std::env::set_var("DB_MAX_CONNECTIONS", "10");
         std::env::set_var("DB_CONNECT_TIMEOUT_SECONDS", "30");
+        // Each #[tokio::test] creates a separate tokio runtime, but the pool
+        // is shared via OnceCell.  Connections created in one runtime become
+        // stale when that runtime is dropped.  Setting idle_timeout to 0 forces
+        // the pool to discard all idle connections on acquire and create fresh
+        // ones in the current runtime.
+        std::env::set_var("DB_IDLE_TIMEOUT_SECONDS", "0");
         std::env::set_var("AWS_ACCESS_KEY_ID", "test");
         std::env::set_var("AWS_SECRET_ACCESS_KEY", "test");
         std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");

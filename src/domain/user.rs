@@ -28,6 +28,9 @@ pub struct PublicUser {
     pub avatar_url: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    pub followers_count: i64,
+    pub following_count: i64,
+    pub posts_count: i64,
 }
 
 impl PublicUser {
@@ -40,6 +43,9 @@ impl PublicUser {
             bio: user.bio,
             avatar_url,
             created_at: user.created_at,
+            followers_count: 0,
+            following_count: 0,
+            posts_count: 0,
         }
     }
 }
@@ -53,6 +59,9 @@ impl From<User> for PublicUser {
             bio: user.bio,
             avatar_url: user.avatar_url,
             created_at: user.created_at,
+            followers_count: 0,
+            following_count: 0,
+            posts_count: 0,
         }
     }
 }
@@ -66,6 +75,9 @@ impl From<&User> for PublicUser {
             bio: user.bio.clone(),
             avatar_url: user.avatar_url.clone(),
             created_at: user.created_at,
+            followers_count: 0,
+            following_count: 0,
+            posts_count: 0,
         }
     }
 }
