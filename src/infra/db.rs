@@ -17,10 +17,13 @@ impl Db {
             .acquire_timeout(Duration::from_secs(config.db_connect_timeout_seconds))
             .idle_timeout(Duration::from_secs(config.db_idle_timeout_seconds))
             .max_lifetime(Duration::from_secs(config.db_max_lifetime_seconds))
-            .test_before_acquire(true)
             .connect(&config.database_url)
             .await?;
         Ok(Self { pool })
+    }
+
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self { pool }
     }
 
     pub fn pool(&self) -> &PgPool {

@@ -185,21 +185,26 @@ impl TestApp {
         std::env::set_var("PASETO_REFRESH_KEY", TEST_PASETO_REFRESH_KEY);
         std::env::set_var("ADMIN_TOKEN", TEST_ADMIN_TOKEN);
         std::env::set_var("APP_MODE", "api");
-        std::env::set_var("DB_MAX_CONNECTIONS", "10");
-        std::env::set_var("DB_CONNECT_TIMEOUT_SECONDS", "30");
-        // Each #[tokio::test] creates a separate tokio runtime, but the pool
-        // is shared via OnceCell.  Connections created in one runtime become
-        // stale when that runtime is dropped.  Setting idle_timeout to 0 forces
-        // the pool to discard all idle connections on acquire and create fresh
-        // ones in the current runtime.
-        std::env::set_var("DB_IDLE_TIMEOUT_SECONDS", "0");
         std::env::set_var("AWS_ACCESS_KEY_ID", "test");
         std::env::set_var("AWS_SECRET_ACCESS_KEY", "test");
         std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");
 
         let config = AppConfig::from_env().expect("failed to build AppConfig");
 
-        let db = Db::connect(&config).await.expect("Db::connect failed");
+        // Build the pool manually with after_release returning false so that
+        // connections are closed immediately when returned to the pool.  Each
+        // #[tokio::test] creates its own tokio runtime; connections created on
+        // one runtime hang when reused from another.  Disabling connection
+        // reuse guarantees every acquire() creates a fresh connection on the
+        // current runtime.
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .acquire_timeout(std::time::Duration::from_secs(10))
+            .after_release(|_conn, _meta| Box::pin(async move { Ok(false) }))
+            .connect(&config.database_url)
+            .await
+            .expect("test pool connect failed");
+        let db = Db::from_pool(pool);
         let cache = RedisCache::connect(&config.redis_url)
             .await
             .expect("Redis connect failed");
