@@ -73,9 +73,17 @@ variable "ssh_allowed_cidrs" {
   default     = []
 }
 
+variable "scw_secret_key" {
+  description = "Scaleway secret key (passed by CI, used for provider auth)"
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
 variable "alert_contact_emails" {
   description = "Alert contact email addresses"
   type        = list(string)
+  default     = []
 }
 
 # DNS Configuration
