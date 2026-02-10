@@ -1,519 +1,338 @@
-# Ciel Backend - Scaleway Terraform Infrastructure Plan
+# Ciel Backend - Scaleway Infrastructure Plan
 
-## Executive Summary
+## Architecture Overview
 
-Complete Terraform infrastructure plan for deploying the Ciel photo-sharing backend to Scaleway. Designed for ~€50-100/month starting budget with variable-driven scaling to 100K+ users.
+The infrastructure uses a **combined single-instance** model for compute with an **event-driven serverless container** for media processing. This minimizes cost at low traffic while providing a clear scaling path.
+
+```
+                    ┌──────────────────────────┐
+                    │   Scaleway SQS (MNQ)     │
+                    │   ciel-media-jobs queue   │
+                    └─────────┬────────────────┘
+                              │ SQS Trigger (POST)
+                              ▼
+┌───────────────┐   ┌──────────────────────┐
+│  Clients      │   │ Serverless Container │
+│  (iOS/Android)├──►│  media-processor     │
+│               │   │  APP_MODE=           │
+└───────┬───────┘   │  serverless-worker   │
+        │           └──────────┬───────────┘
+        ▼                      │
+┌───────────────────┐          │
+│ Combined Instance │          │
+│  (DEV1-M)         │          │
+│  ┌─────────────┐  │          │
+│  │ Ciel API    │  │          │
+│  │ APP_MODE=api│  │          │
+│  └─────────────┘  │          │
+│  ┌─────────────┐  │          │
+│  │ Redis 7     │  │          │
+│  └─────────────┘  │          │
+└─────────┬─────────┘          │
+          │                    │
+          ▼                    ▼
+┌──────────────────────────────────┐
+│  Managed PostgreSQL (DB-DEV-S)   │
+│  Private Network                 │
+└──────────────────────────────────┘
+          │
+┌──────────────────────────────────┐
+│  Object Storage (S3)             │
+│  ciel-media-dev bucket           │
+└──────────────────────────────────┘
+```
+
+### How It Works
+
+1. **Combined Instance** runs both the Ciel API (`APP_MODE=api`) and Redis in Docker containers on a single DEV1-M machine. The API handles all HTTP traffic and enqueues media processing jobs to SQS.
+
+2. **Serverless Container** receives SQS messages via Scaleway's native trigger. Each message is POSTed as the request body. The container runs `APP_MODE=serverless-worker`, which only needs DB + S3 (no Redis, no PASETO keys). It scales to zero when idle and auto-scales up to `max_scale` under load.
+
+3. **Managed PostgreSQL** sits on the private network. Both the combined instance and serverless container connect to it.
+
+4. **Object Storage** holds uploaded media (originals + processed variants). Both the API (for presigned URLs) and worker (for image processing) access it.
 
 ---
 
-## 1. Compute Strategy Recommendation
+## Module Structure
 
-### Analysis of Options
-
-| Option | Pros | Cons | Starting Cost |
-| :--- | :--- | :--- | :--- |
-| **Dedicated Instances** | Simple, predictable, full control, no cold-starts | Manual scaling, pay for idle | ~€13/mo |
-| **Serverless Containers** | Pay-per-use, auto-scaling | Cold-starts, worker incompatible (long-polling) | ~€30-60/mo |
-| **Kubernetes Kapsule** | Free control plane, standard K8s, easy scaling | Overkill for early stage, more complex | ~€13-31/mo |
-
-### Recommendation
-
-**Phase 1 (0-50K users): Dedicated Instances (DEV1-S/DEV1-M)**
-- Simplest to deploy and debug
-- Predictable costs
-- Your worker runs as a long-polling loop - not serverless-compatible
-
-**Phase 2 (50K+ users): Migrate to Kubernetes Kapsule**
-- When horizontal scaling becomes critical
-- When you need rolling deployments
-- Same container image works in both
-
-> [!WARNING]
-> **Avoid Serverless Containers** - Your worker's `media_processor.rs` runs a continuous polling loop, incompatible with serverless execution model.
-
----
-
-## 2. Module Structure
-
-```text
+```
 terraform/
 ├── modules/
-│   ├── networking/   # VPC, Private Networks, Security Groups, Load Balancer
-│   ├── compute/      # Instances, Container Registry, cloud-init
-│   ├── database/     # Managed PostgreSQL, read replicas
-│   ├── cache/        # Redis (self-hosted or managed)
-│   ├── storage/      # Object Storage, CDN, IAM
-│   ├── messaging/    # MNQ SQS queues
-│   ├── secrets/      # Secret Manager
-│   └── observability/ # Cockpit, alerts
-│   └── dns/          # Domain records
+│   ├── networking/    # VPC, Private Network, Security Groups, Public Gateway, Bastion, LB
+│   ├── compute/       # Container Registry, Combined/API/Worker instances, Serverless Container
+│   ├── database/      # Managed PostgreSQL, read replicas
+│   ├── cache/         # Redis (self-hosted instance or managed) — disabled in combined mode
+│   ├── storage/       # Object Storage bucket, IAM credentials, CDN
+│   ├── messaging/     # MNQ SQS queue + DLQ
+│   ├── secrets/       # Scaleway Secret Manager
+│   ├── observability/ # Cockpit monitoring
+│   └── dns/           # Domain DNS records
 ├── environments/
-│   ├── dev/
-│   ├── staging/
-│   └── prod/
-└── shared/
-    ├── provider.tf
-    └── versions.tf
+│   ├── dev/           # Single combined instance + serverless worker
+│   ├── staging/       # (future) Same as dev or split mode
+│   └── prod/          # (future) Multi-instance + LB + managed Redis
 ```
 
 ---
 
-## 3. Networking Module
+## Dev Environment Configuration
 
-### Resources
+The dev environment (`terraform/environments/dev/main.tf`) uses these key settings:
 
-- `scaleway_vpc` - Main VPC
-- `scaleway_vpc_private_network` - Private network (10.0.0.0/24)
-- `scaleway_vpc_public_gateway` - Outbound internet access (VPC-GW-S)
-- `scaleway_lb` - Load balancer for API instances (LB-GP-S)
-- `scaleway_lb_backend` - Health checks on `/health`
-- `scaleway_lb_frontend` - HTTPS termination (port 443)
-- `scaleway_instance_security_group` - API (allow 8080, SSH optional)
-- `scaleway_instance_security_group` - Worker (outbound only)
-
-### Key Variables
-
-```hcl
-variable "enable_load_balancer" { default = true }
-variable "lb_type" { default = "LB-GP-S" }
-variable "enable_bastion" { default = false }
-variable "private_network_cidr" { default = "10.0.0.0/24" }
-```
-
----
-
-## 4. Compute Module
-
-### Resources
-
-- `scaleway_registry_namespace` - Container registry for Docker images
-- `scaleway_instance_server` (API) - Runs with `APP_MODE=api`
-- `scaleway_instance_server` (Worker) - Runs with `APP_MODE=worker`
-- Cloud-init templates for Docker setup and container deployment
-
-### Key Variables
-
-```hcl
-variable "api_instance_count" { default = 1 }
-variable "api_instance_type" { default = "DEV1-S" }
-variable "worker_instance_count" { default = 1 }
-variable "worker_instance_type" { default = "DEV1-S" }
-variable "container_image_tag" { default = "latest" }
-```
-
-### Cloud-Init Strategy
-
-Instances boot with Debian, install Docker, pull image from Scaleway Container Registry, and run via docker-compose with environment variables injected from Terraform outputs.
+| Module | Setting | Value |
+|--------|---------|-------|
+| **networking** | `enable_load_balancer` | `false` |
+| **networking** | `enable_bastion` | `true` |
+| **networking** | `enable_public_gateway` | `true` |
+| **database** | `db_node_type` | `DB-DEV-S` |
+| **database** | `enable_ha` | `false` |
+| **cache** | `enabled` | `false` (Redis runs on combined instance) |
+| **compute** | `enable_combined_mode` | `true` |
+| **compute** | `combined_instance_type` | `DEV1-M` |
+| **compute** | `api_instance_count` | `0` |
+| **compute** | `worker_instance_count` | `0` |
+| **compute** | `enable_serverless_worker` | `true` |
+| **compute** | `serverless_worker_min_scale` | `0` (scale to zero) |
+| **compute** | `serverless_worker_max_scale` | `3` |
+| **storage** | `enable_cdn` | `false` |
+| **observability** | `enable_alerts` | `false` |
 
 ---
 
-## 5. Database Module
+## Cost Analysis
 
-### Resources
-
-- `scaleway_rdb_instance` - Managed PostgreSQL 16
-- `scaleway_rdb_database` - `ciel` database
-- `scaleway_rdb_user` - Application user with limited privileges
-- `scaleway_rdb_privilege` - Grant permissions
-- `scaleway_rdb_read_replica` - For scaling reads (optional)
-
-### Key Variables
-
-```hcl
-variable "db_node_type" { default = "DB-DEV-S" } # ~€17/mo
-variable "enable_ha" { default = false }
-variable "volume_size_in_gb" { default = 10 }
-variable "read_replica_count" { default = 0 }
-```
-
-### Outputs
-
-- `database_url` - Full connection string for app
-
-### PostgreSQL Settings
-
-```hcl
-db_settings = {
-  work_mem = "4MB"
-  max_connections = "100"
-  effective_cache_size = "768MB"
-}
-```
-
----
-
-## 6. Cache Module
-
-### Option A: Self-Managed Redis (Cost-Optimized) - Recommended for Start
-
-- `scaleway_instance_server` - DEV1-S running Redis 7
-- Cloud-init installs and configures Redis
-- **Cost:** ~€6.42/mo
-
-### Option B: Managed Redis (Production)
-
-- `scaleway_redis_cluster` - RED1-micro or larger
-- Private network integration, TLS
-- **Cost:** ~€35+/mo
-
-### Key Variables
-
-```hcl
-variable "use_managed_redis" { default = false }
-variable "redis_instance_type" { default = "DEV1-S" }
-variable "managed_redis_node_type" { default = "RED1-micro" }
-```
-
----
-
-## 7. Storage Module
-
-### Resources
-
-- `scaleway_object_bucket` - Media storage bucket
-- `scaleway_object_bucket_policy` - CDN access policy
-- `scaleway_iam_application` - S3 access credentials
-- `scaleway_iam_api_key` - Access/secret key pair
-- `scaleway_iam_policy` - Read/Write/Delete permissions
-- Edge Services CDN pipeline (manual setup may be needed)
-
-### Key Variables
-
-```hcl
-variable "cors_allowed_origins" { default = ["*"] }
-variable "enable_cdn" { default = true }
-variable "cdn_custom_domain" { default = null }
-variable "enable_glacier_transition" { default = false }
-```
-
-### Lifecycle Rules
-
-- Delete incomplete multipart uploads after 7 days
-- Optional: Transition old originals to Glacier after 90 days
-
----
-
-## 8. Messaging Module (SQS-Compatible)
-
-### Resources
-
-- `scaleway_mnq_sqs` - Enable SQS protocol
-- `scaleway_mnq_sqs_credentials` - Application credentials
-- `scaleway_mnq_sqs_queue` - `ciel-media-jobs` queue
-- `scaleway_mnq_sqs_queue` - Dead letter queue (optional)
-
-### Key Variables
-
-```hcl
-variable "message_retention_seconds" { default = 345600 } # 4 days
-variable "visibility_timeout" { default = 300 }           # 5 min for processing
-variable "receive_wait_time" { default = 10 }            # Long polling
-variable "enable_dlq" { default = true }
-```
-
-### Outputs
-
-- `queue_endpoint` - `https://sqs.mnq.fr-par.scaleway.com`
-- `queue_name` - Queue name for `QUEUE_NAME` env var
-- `sqs_access_key` / `sqs_secret_key` - For AWS SDK
-
----
-
-## 9. Secrets Module
-
-### Resources
-
-- `scaleway_secret` + `scaleway_secret_version` for:
-  - PASETO access key
-  - PASETO refresh key
-  - Admin token (optional)
-  - Database credentials
-  - Redis password
-- `random_password` - Generate secure passwords
-
-### Key Secrets Required
-
-```hcl
-variable "paseto_access_key" { sensitive = true } # Base64 32-byte
-variable "paseto_refresh_key" { sensitive = true } # Base64 32-byte
-variable "admin_token" { sensitive = true }       # Optional
-```
-
-### Generate PASETO Keys
-
-```bash
-openssl rand -base64 32 # Run twice for access + refresh
-```
-
----
-
-## 10. Observability Module
-
-### Resources
-
-- `scaleway_cockpit` - Enable monitoring
-- `scaleway_cockpit_grafana_user` - Dashboard access
-- `scaleway_cockpit_alert_manager` - Alert notifications
-
-### Key Metrics to Monitor
-
-- **API:** Request latency P95, error rate, request rate
-- **Database:** Connection count, query latency, replication lag
-- **Worker:** Queue depth, processing time, failure rate
-- **Infrastructure:** CPU, memory, disk per instance
-
----
-
-## 11. Environment Variables Mapping
-
-The following environment variables must be set from Terraform outputs:
-
-| App Variable | Terraform Source |
-| :--- | :--- |
-| `DATABASE_URL` | `module.database.database_url` |
-| `REDIS_URL` | `module.cache.redis_url` |
-| `S3_ENDPOINT` | `https://s3.fr-par.scw.cloud` |
-| `S3_REGION` | `fr-par` |
-| `S3_BUCKET` | `module.storage.bucket_name` |
-| `S3_PUBLIC_ENDPOINT` | `module.storage.cdn_endpoint` |
-| `QUEUE_ENDPOINT` | `module.messaging.queue_endpoint` |
-| `QUEUE_REGION` | `fr-par` |
-| `QUEUE_NAME` | `module.messaging.queue_name` |
-| `AWS_ACCESS_KEY_ID` | `module.storage.s3_access_key` |
-| `AWS_SECRET_ACCESS_KEY` | `module.storage.s3_secret_key` |
-| `PASETO_ACCESS_KEY` | From secrets input |
-| `PASETO_REFRESH_KEY` | From secrets input |
-| `APP_MODE` | `api` or `worker` |
-| `HTTP_ADDR` | `0.0.0.0:8080` |
-
----
-
-## 12. Cost Analysis
-
-### Tier 1: MVP (0-10K users) - Target: ~€50-100/month
+### Dev / MVP (current configuration)
 
 | Component | Resource | Monthly Cost |
-| :--- | :--- | :--- |
-| API Compute | 1x DEV1-S | €6.42 |
-| Worker Compute | 1x DEV1-S | €6.42 |
+|-----------|----------|-------------|
+| Combined Instance | 1x DEV1-M (3 vCPU, 4GB RAM) | ~€19 |
 | Database | DB-DEV-S | ~€17 |
-| Cache | Self-managed Redis DEV1-S | €6.42 |
 | Object Storage | ~50GB | ~€0.75 |
-| CDN | Edge Services Starter | €0.99 |
-| Load Balancer | LB-GP-S | ~€12 |
-| Messaging | SQS (1M free) | €0 |
-| Secrets | 10 versions | ~€0.40 |
-| **Total** | | **~€50/month** |
+| Messaging (SQS) | First 1M requests free | €0 |
+| Serverless Worker | Scale-to-zero, free tier covers light use | ~€0 |
+| Secrets Manager | ~10 secrets | ~€0.40 |
+| Public Gateway | VPC-GW-S | ~€5 |
+| Bastion | DEV1-S (optional, can disable) | ~€6 |
+| **Total** | | **~€48/month** |
 
-### Tier 2: Growth (10K-50K users) - ~€200/month
-
-| Change | New Resource | Cost Delta |
-| :--- | :--- | :--- |
-| API | 2x DEV1-M | +€22 |
-| Worker | 2x DEV1-S | +€6 |
-| Database | DB-PRO2-XXS | +€63 |
-| Cache | Managed Redis | +€28 |
-| LB | LB-GP-M | +€15 |
-| CDN | Professional | +€12 |
-
-### Tier 3: Scale (50K-100K+ users) - ~€600-800/month
-
-- 4x DEV1-L or Kapsule cluster
-- DB-PRO2-S + Read Replica
-- Managed Redis RED1-M
-- Advanced CDN tier
+> Scaleway free tiers: 400K GB-s + 200K vCPU-s/month for Serverless Containers, 75GB Object Storage, 1M SQS requests/month.
 
 ---
 
-## 13. Scaling via Variables
+## Scaling Scenarios
 
-Scale infrastructure by changing `terraform.tfvars`:
+Each scenario lists the exact Terraform variable changes. Apply them in `terraform.tfvars` or via `TF_VAR_*` environment variables, then `terraform apply`.
+
+### Scenario 1: Upgrade Combined Instance (more CPU/RAM)
+
+**When:** API response times degrade under load, Redis memory pressure.
 
 ```hcl
-# Horizontal API scaling
-api_instance_count = 2
-api_instance_type  = "DEV1-M"
-
-# More workers for media backlog
-worker_instance_count = 3
-
-# Database upgrade
-db_node_type          = "DB-PRO2-XXS"
-db_enable_ha          = true
-db_read_replica_count = 1
-
-# Switch to managed Redis
-use_managed_redis       = true
-managed_redis_node_type = "RED1-M"
+# In dev/main.tf or override via tfvars
+combined_instance_type      = "DEV1-L"     # was DEV1-M — 4 vCPU, 8GB
+embedded_redis_maxmemory_mb = 1024         # was 512
 ```
 
-### Scaling Triggers
-
-| Metric | Threshold | Action |
-| :--- | :--- | :--- |
-| API CPU | >70% sustained | Add instance or upgrade |
-| API latency P95 | >500ms | Add instance, check DB |
-| Queue depth | >1000 messages | Add worker |
-| DB connections | >80% max | Upgrade or add replica |
-| Redis memory | >80% | Upgrade tier |
+**Cost delta:** +€19/mo (DEV1-L is ~€38/mo vs DEV1-M at ~€19/mo)
 
 ---
 
-## 14. CI/CD Integration
+### Scenario 2: Split API and Redis to Separate Instances
 
-### GitHub Actions Workflow
-
-1. **Build:** Build Docker image, push to Scaleway Container Registry
-2. **Migrate:** Run SQL migrations against database
-3. **Deploy:** `terraform apply` with new image tag
-4. **Rollout:** Restart instances to pull new image
-
-### Required GitHub Secrets
-
-- `SCW_ACCESS_KEY` / `SCW_SECRET_KEY`
-- `SCW_PROJECT_ID`
-- `PASETO_ACCESS_KEY` / `PASETO_REFRESH_KEY`
-- `DB_ADMIN_PASSWORD`
-- `DATABASE_URL` (for migrations)
-
----
-
-## 15. Remote State Configuration
+**When:** Redis and API compete for resources, or you want independent scaling.
 
 ```hcl
-terraform {
-  backend "s3" {
-    bucket                      = "ciel-terraform-state"
-    key                         = "prod/terraform.tfstate"
-    region                      = "fr-par"
-    endpoint                    = "https://s3.fr-par.scw.cloud"
-    skip_credentials_validation = true
-    skip_region_validation      = true
-  }
-}
+# compute module
+enable_combined_mode  = false
+api_instance_count    = 1
+api_instance_type     = "DEV1-S"   # or DEV1-M
+
+# cache module
+enabled              = true
+use_managed_redis    = false       # Self-hosted Redis on DEV1-S
+redis_instance_type  = "DEV1-S"
 ```
 
-> [!NOTE]
-> Create the state bucket manually before first `terraform init`.
+You also need to pass `redis_host` and `redis_port` to the compute module (the cache module outputs these).
+
+**Cost delta:** ~+€6/mo (separate DEV1-S for Redis), but frees combined instance resources.
 
 ---
 
-## 16. Implementation Steps
+### Scenario 3: Add Load Balancer + Multiple API Instances
 
-1. Create Scaleway Project (manual)
-2. Create state bucket for Terraform remote state
-3. Generate PASETO keys: `openssl rand -base64 32` (twice)
-4. Create `terraform.tfvars` with secrets
-5. Deploy dev environment first: `terraform apply`
-6. Run database migrations: Apply SQL files from `/migrations`
-7. Build and push container image to registry
-8. Verify deployment: Check `/health` endpoint
-9. Configure DNS: Point domain to load balancer IP
-10. Enable CDN: Configure Edge Services for media bucket
+**When:** Single API instance can't handle request volume; you need horizontal scaling and zero-downtime deploys.
 
----
+```hcl
+# networking module
+enable_load_balancer = true
+lb_type              = "LB-GP-S"
 
-## 17. Files to Create
+# compute module
+enable_combined_mode = false
+api_instance_count   = 2           # or 3, 4...
+api_instance_type    = "DEV1-M"
 
-```text
-terraform/
-├── modules/
-│   ├── networking/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   ├── compute/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   ├── outputs.tf
-│   │   ├── cloud-init-api.yaml
-│   │   └── cloud-init-worker.yaml
-│   ├── database/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   ├── cache/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   ├── outputs.tf
-│   │   └── cloud-init-redis.yaml
-│   ├── storage/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   ├── messaging/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   ├── secrets/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   └── observability/
-│       ├── main.tf
-│       ├── variables.tf
-│       └── outputs.tf
-├── environments/
-│   ├── dev/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   ├── outputs.tf
-│   │   ├── backend.tf
-│   │   └── terraform.tfvars.example
-│   ├── staging/
-│   │   └── (same structure)
-│   └── prod/
-│       └── (same structure)
-└── .github/
-    └── workflows/
-        └── deploy.yml
+# cache module
+enabled             = true
+use_managed_redis   = false
 ```
 
----
+The compute module automatically registers instances with the load balancer backend.
 
-## 18. Cost Optimization Notes
-
-1. Self-managed Redis saves ~€28/mo vs managed (use for MVP)
-2. DEV1-S instances are most cost-effective for low traffic
-3. First 75GB storage free, 1TB CDN egress free
-4. SQS first 1M requests free per month
-5. VPC and Private Networks are free
-6. Consider Reserved Instances for 30-50% savings at scale
-7. Glacier transition for old original images saves storage costs
+**Cost delta:** +€12/mo (LB) + per-instance cost.
 
 ---
 
-## 19. Potential Issues & Considerations
+### Scenario 4: Upgrade to Managed Redis
 
-1. **MNQ SQS endpoint format** - Verify your `queue.rs` uses the correct Scaleway MNQ endpoint format
-2. **S3 credentials** - Scaleway uses project-scoped IAM, not AWS IAM
-3. **Container Registry auth** - Instances need `scw` CLI or registry credentials
-4. **Database migrations** - Need a migration runner in CI/CD (not built into instances)
-5. **Edge Services Terraform** - Provider support may be limited; some manual setup
-6. **Load balancer SSL** - Need to provision Let's Encrypt certificate
+**When:** You need HA Redis, TLS, or don't want to manage Redis yourself.
 
----
+```hcl
+# cache module
+enabled              = true
+use_managed_redis    = true
+managed_redis_node_type = "RED1-micro"   # or RED1-S, RED1-M
+```
 
-## 20. Verification Plan
-
-After deployment:
-
-1. **Health check:** `curl https://api.yourdomain.com/health`
-2. **Database connectivity:** Check logs for successful pool creation
-3. **Redis connectivity:** Verify rate limiting works
-4. **S3 uploads:** Test presigned URL generation
-5. **Queue processing:** Upload image, verify worker processes it
-6. **CDN delivery:** Verify media URLs resolve through CDN
-7. **Monitoring:** Check Cockpit dashboards populate
+**Cost delta:** ~+€35/mo for RED1-micro (replaces self-hosted DEV1-S).
 
 ---
 
-## Summary
+### Scenario 5: Upgrade Database
 
-This plan provides a complete, modular Terraform configuration for Scaleway with:
-- ~€50/month starting cost (well under €100 budget)
-- Variable-driven scaling to 100K+ users
-- 8 reusable modules following Terraform best practices
-- 3 environments (dev, staging, prod)
-- CI/CD ready with GitHub Actions workflow
-- Full observability via Scaleway Cockpit
+**When:** DB connections maxed out, query latency increasing, need HA.
+
+```hcl
+# database module
+db_node_type         = "DB-PRO2-XXS"   # was DB-DEV-S
+enable_ha            = true
+volume_size_in_gb    = 20
+read_replica_count   = 1               # optional read replica
+```
+
+**Cost delta:** ~+€63/mo for DB-PRO2-XXS with HA.
+
+---
+
+### Scenario 6: Scale Serverless Worker
+
+**When:** Media processing queue is backing up.
+
+```hcl
+# compute module
+serverless_worker_cpu       = 2000     # was 1000 (2 vCPU)
+serverless_worker_memory    = 1024     # was 512 (1GB)
+serverless_worker_max_scale = 10       # was 3
+```
+
+**Cost delta:** Minimal — serverless billing is per-invocation. Higher `max_scale` just allows more concurrency.
+
+---
+
+### Scenario 7: Enable CDN for Media
+
+**When:** Media requests are high, want to reduce S3 egress and improve latency.
+
+```hcl
+# storage module
+enable_cdn            = true
+cors_allowed_origins  = ["https://yourdomain.com"]
+
+# dns module (if using DNS)
+enable_cdn_dns = true
+cdn_subdomain  = "media"
+```
+
+> Edge Services CDN may require manual setup in Scaleway Console (Terraform provider support is limited).
+
+---
+
+### Scenario 8: Production-Ready (Full Split)
+
+**When:** Moving to production with 10K+ users.
+
+```hcl
+# networking
+enable_load_balancer = true
+enable_bastion       = false          # or true for SSH debugging
+
+# compute
+enable_combined_mode    = false
+api_instance_count      = 2
+api_instance_type       = "DEV1-M"
+enable_serverless_worker = true
+serverless_worker_max_scale = 10
+
+# database
+db_node_type         = "DB-PRO2-XXS"
+enable_ha            = true
+volume_size_in_gb    = 20
+
+# cache
+enabled              = true
+use_managed_redis    = true
+managed_redis_node_type = "RED1-micro"
+
+# storage
+enable_cdn = true
+
+# observability
+enable_alerts = true
+```
+
+**Estimated cost:** ~€200-250/month
+
+---
+
+### Scenario 9: Kubernetes Migration (50K+ users)
+
+**When:** You need rolling deployments, autoscaling, and service mesh capabilities.
+
+- Scaleway Kapsule has a **free mutualized control plane**
+- Use the same Docker image — just deploy via Kubernetes manifests instead of cloud-init
+- The serverless worker stays as-is (no reason to move it to K8s)
+- Migrate API + Redis into K8s pods on GP1-S or DEV1-L nodes
+
+This is a larger migration that involves writing K8s manifests. The Terraform modules for database, storage, messaging, and secrets remain unchanged.
+
+---
+
+## Scaling Decision Matrix
+
+| Symptom | Check | Action |
+|---------|-------|--------|
+| API P95 latency > 500ms | CPU on combined instance | Scenario 1 or 3 |
+| Redis memory > 80% | `redis-cli INFO memory` | Scenario 1 or 2 |
+| DB connections > 80% max | `pg_stat_activity` | Scenario 5 |
+| Media queue depth > 1000 | SQS metrics in Cockpit | Scenario 6 |
+| Need zero-downtime deploys | N/A | Scenario 3 |
+| Going to production | N/A | Scenario 8 |
+| > 50K active users | N/A | Scenario 9 |
+
+---
+
+## Environment Variables Mapping
+
+Variables injected into containers via cloud-init (combined/API instances) or secret_environment_variables (serverless):
+
+| App Variable | Source | Used By |
+|-------------|--------|---------|
+| `APP_MODE` | `api` or `serverless-worker` | Both |
+| `DATABASE_URL` | `module.database.database_url` | Both |
+| `REDIS_URL` | `redis://:<password>@redis:6379/` (combined) or managed endpoint | API only |
+| `S3_ENDPOINT` | `module.storage.s3_endpoint` | Both |
+| `S3_REGION` | `fr-par` | Both |
+| `S3_BUCKET` | `module.storage.bucket_name` | Both |
+| `S3_PUBLIC_ENDPOINT` | `module.storage.s3_public_endpoint` | API only |
+| `QUEUE_ENDPOINT` | `module.messaging.queue_endpoint` | API only |
+| `QUEUE_NAME` | `module.messaging.queue_name` | API only |
+| `AWS_ACCESS_KEY_ID` | `module.storage.s3_access_key` (or SQS creds) | Both |
+| `AWS_SECRET_ACCESS_KEY` | `module.storage.s3_secret_key` (or SQS creds) | Both |
+| `PASETO_ACCESS_KEY` | From secrets module | API only |
+| `PASETO_REFRESH_KEY` | From secrets module | API only |
+| `HTTP_ADDR` | `0.0.0.0:8080` | Both |
+| `RUST_LOG` | `debug,tower_http=debug` (dev) | Both |
+
+> The serverless worker skips REDIS_URL, QUEUE_*, and PASETO_* — these are not required in `serverless-worker` mode.

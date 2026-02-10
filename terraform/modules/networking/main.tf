@@ -70,12 +70,32 @@ resource "scaleway_instance_security_group" "api" {
   outbound_default_policy = "accept"
   zone                    = var.zone
 
-  # Allow HTTP from load balancer
+  # Allow HTTPS from load balancer (internal, when LB is enabled)
   inbound_rule {
     action   = "accept"
     port     = 8443
     protocol = "TCP"
     ip_range = var.private_network_cidr
+  }
+
+  # Allow HTTP from public internet (for Caddy / Let's Encrypt ACME challenge)
+  dynamic "inbound_rule" {
+    for_each = var.enable_public_https ? [1] : []
+    content {
+      action   = "accept"
+      port     = 80
+      protocol = "TCP"
+    }
+  }
+
+  # Allow HTTPS from public internet (for Caddy auto-SSL)
+  dynamic "inbound_rule" {
+    for_each = var.enable_public_https ? [1] : []
+    content {
+      action   = "accept"
+      port     = 443
+      protocol = "TCP"
+    }
   }
 
   # Allow SSH (optional - for debugging)

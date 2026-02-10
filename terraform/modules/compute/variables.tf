@@ -33,30 +33,110 @@ variable "registry_is_public" {
   default     = false
 }
 
-# API Instances
+# ---- Combined Mode (single instance: API + Redis) ----
+
+variable "enable_combined_mode" {
+  description = "Run API + Redis on a single instance instead of separate instances"
+  type        = bool
+  default     = false
+}
+
+variable "combined_instance_type" {
+  description = "Instance type for the combined (API + Redis) instance"
+  type        = string
+  default     = "DEV1-M"
+}
+
+variable "embedded_redis_maxmemory_mb" {
+  description = "Max memory for embedded Redis in combined mode (MB)"
+  type        = number
+  default     = 512
+}
+
+# ---- Multi-Instance Mode ----
+
 variable "api_instance_count" {
-  description = "Number of API instances"
+  description = "Number of API instances (ignored in combined mode)"
   type        = number
   default     = 1
 }
 
 variable "api_instance_type" {
-  description = "API instance type"
+  description = "API instance type (ignored in combined mode)"
   type        = string
   default     = "DEV1-S"
 }
 
-# Worker Instances
 variable "worker_instance_count" {
-  description = "Number of worker instances"
+  description = "Number of polling worker instances (set 0 when using serverless worker)"
   type        = number
-  default     = 1
+  default     = 0
 }
 
 variable "worker_instance_type" {
   description = "Worker instance type"
   type        = string
   default     = "DEV1-S"
+}
+
+# ---- Serverless Worker (event-driven media processing) ----
+
+variable "enable_serverless_worker" {
+  description = "Deploy a Serverless Container for media processing, triggered by SQS"
+  type        = bool
+  default     = true
+}
+
+variable "serverless_worker_cpu" {
+  description = "vCPU limit for serverless worker (millicores, 1000 = 1 vCPU)"
+  type        = number
+  default     = 1000
+}
+
+variable "serverless_worker_memory" {
+  description = "Memory limit for serverless worker (MB)"
+  type        = number
+  default     = 512
+}
+
+variable "serverless_worker_min_scale" {
+  description = "Minimum number of serverless worker instances (0 = scale to zero)"
+  type        = number
+  default     = 0
+}
+
+variable "serverless_worker_max_scale" {
+  description = "Maximum number of concurrent serverless worker instances"
+  type        = number
+  default     = 5
+}
+
+variable "serverless_worker_timeout" {
+  description = "Timeout for serverless worker requests in seconds"
+  type        = number
+  default     = 300
+}
+
+# Secrets for the serverless container (passed as env vars at deploy time)
+variable "serverless_database_url" {
+  description = "Full DATABASE_URL for the serverless worker container"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "serverless_s3_access_key" {
+  description = "S3 access key for the serverless worker container"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "serverless_s3_secret_key" {
+  description = "S3 secret key for the serverless worker container"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 # Container Image
@@ -78,8 +158,9 @@ variable "api_security_group_id" {
 }
 
 variable "worker_security_group_id" {
-  description = "Worker security group ID"
+  description = "Worker security group ID (only needed if worker_instance_count > 0)"
   type        = string
+  default     = ""
 }
 
 variable "load_balancer_backend_id" {
@@ -116,18 +197,19 @@ variable "db_password_secret_id" {
 }
 
 variable "redis_host" {
-  description = "Redis host"
+  description = "Redis host (ignored in combined mode)"
   type        = string
+  default     = ""
 }
 
 variable "redis_port" {
-  description = "Redis port"
+  description = "Redis port (ignored in combined mode)"
   type        = number
   default     = 6379
 }
 
 variable "redis_use_tls" {
-  description = "Use TLS for Redis connections"
+  description = "Use TLS for Redis connections (ignored in combined mode)"
   type        = bool
   default     = false
 }
@@ -206,6 +288,12 @@ variable "paseto_refresh_key_secret_id" {
 
 variable "admin_token_secret_id" {
   description = "Secret Manager ID for admin token (optional)"
+  type        = string
+  default     = ""
+}
+
+variable "api_domain" {
+  description = "Public domain for Caddy auto-HTTPS (e.g., dev-api.ciel-social.eu). Required in combined mode."
   type        = string
   default     = ""
 }

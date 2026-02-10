@@ -1,3 +1,9 @@
+variable "enabled" {
+  description = "Whether to create any cache resources. Set false when Redis is embedded in the compute instance."
+  type        = bool
+  default     = true
+}
+
 variable "project_id" {
   description = "Scaleway project ID"
   type        = string

@@ -107,6 +107,7 @@ pub async fn ip_rate_limit_middleware(
     let rate_limit_config = match (path, method.as_str()) {
         ("/auth/login", "POST") => Some(("login", 10, RateWindow::Hour)),
         ("/users", "POST") => Some(("signup", state.ip_signup_rate_limit, RateWindow::Day)),
+        ("/health", "GET") => Some(("health", 60, RateWindow::Minute)),
         _ => None,
     };
 

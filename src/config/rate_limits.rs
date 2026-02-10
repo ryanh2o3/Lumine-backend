@@ -148,6 +148,7 @@ impl RateLimits {
 /// Time window for rate limiting
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RateWindow {
+    Minute,
     Hour,
     Day,
 }
@@ -155,6 +156,7 @@ pub enum RateWindow {
 impl RateWindow {
     pub fn seconds(&self) -> u64 {
         match self {
+            RateWindow::Minute => 60,
             RateWindow::Hour => 3600,
             RateWindow::Day => 86400,
         }

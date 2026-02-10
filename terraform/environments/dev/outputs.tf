@@ -1,24 +1,18 @@
 # Outputs for dev environment
 
 output "api_instance_ips" {
-  description = "Private IPs of API instances"
+  description = "Private IPs of API/combined instances"
   value       = module.compute.api_instance_ips
 }
 
-output "worker_instance_ips" {
-  description = "Private IPs of worker instances"
-  value       = module.compute.worker_instance_ips
+output "api_instance_public_ips" {
+  description = "Public IPs of API/combined instances"
+  value       = module.compute.api_instance_public_ips
 }
 
 output "database_url" {
   description = "Database connection URL"
   value       = module.database.database_url
-  sensitive   = true
-}
-
-output "redis_url" {
-  description = "Redis connection URL"
-  value       = module.cache.redis_url
   sensitive   = true
 }
 
@@ -69,6 +63,12 @@ output "bastion_ip" {
 output "private_network_id" {
   description = "Private network ID"
   value       = module.networking.private_network_id
+}
+
+# Serverless worker
+output "serverless_worker_endpoint" {
+  description = "Serverless media worker endpoint URL"
+  value       = module.compute.serverless_worker_endpoint
 }
 
 # DNS Outputs (if enabled)

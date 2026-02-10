@@ -1,8 +1,10 @@
 use axum::{
+    http::{self, Method},
     middleware as axum_middleware,
     Router,
 };
 use tower_http::compression::CompressionLayer;
+use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
@@ -133,12 +135,33 @@ pub fn router(state: AppState) -> Router {
         );
 
     Router::new()
-        // Health and metrics at root (no version prefix)
-        .merge(routes::health())
+        // Health and metrics at root (no version prefix), with IP rate limiting
+        .merge(
+            routes::health()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit::ip_rate_limit_middleware,
+                ))
+        )
         // All API routes under /v1
         .nest("/v1", v1_routes)
         .with_state(state)
         // Global middleware layers (applied to all routes)
+        // CORS — no web origins allowed (mobile-only API)
+        .layer(
+            CorsLayer::new()
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PATCH,
+                    Method::DELETE,
+                    Method::OPTIONS,
+                ])
+                .allow_headers([
+                    http::header::AUTHORIZATION,
+                    http::header::CONTENT_TYPE,
+                ])
+        )
         // M3: Request ID
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(PropagateRequestIdLayer::x_request_id())

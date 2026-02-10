@@ -1,5 +1,9 @@
 use anyhow::{anyhow, Result};
 use aws_sdk_s3::primitives::ByteStream;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -245,5 +249,46 @@ fn image_format_from_content_type(content_type: &str) -> Result<image::ImageForm
         "image/png" => Ok(image::ImageFormat::Png),
         "image/webp" => Ok(image::ImageFormat::WebP),
         _ => Err(anyhow!("unsupported content type")),
+    }
+}
+
+// --- Serverless worker: HTTP handler for SQS trigger ---
+
+#[derive(Clone)]
+pub struct WorkerState {
+    pub db: Db,
+    pub storage: ObjectStorage,
+}
+
+/// Build a minimal router for the serverless worker container.
+/// Scaleway SQS trigger POSTs the raw message body to `/`.
+pub fn router(db: Db, storage: ObjectStorage) -> Router {
+    Router::new()
+        .route("/", post(handle_media_job))
+        .route("/health", get(|| async { StatusCode::OK }))
+        .with_state(WorkerState { db, storage })
+}
+
+async fn handle_media_job(
+    State(state): State<WorkerState>,
+    Json(job): Json<MediaJob>,
+) -> StatusCode {
+    info!(upload_id = %job.upload_id, "serverless worker received media job");
+
+    match process_job(&state.db, &state.storage, &job).await {
+        Ok(ProcessingOutcome::Completed) => StatusCode::OK,
+        Ok(ProcessingOutcome::RetryLater) => {
+            warn!(upload_id = %job.upload_id, "media job needs retry");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+        Err(err) if is_permanent_error(&err) => {
+            error!(error = ?err, upload_id = %job.upload_id, "permanent failure in serverless worker");
+            let _ = mark_failed(&state.db, &job).await;
+            StatusCode::OK // consume message, don't retry
+        }
+        Err(err) => {
+            error!(error = ?err, upload_id = %job.upload_id, "transient failure in serverless worker");
+            StatusCode::INTERNAL_SERVER_ERROR // trigger retry
+        }
     }
 }

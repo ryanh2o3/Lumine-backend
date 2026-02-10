@@ -1,423 +1,185 @@
-# Ciel Backend - Deployment Manual Steps
+# Ciel Backend - Setup & Deployment Guide
 
-This document outlines all manual steps required before and during deployment of the Ciel backend infrastructure to Scaleway.
+## TL;DR
 
----
-
-## TL;DR - Minimal Setup for CI/CD
-
-If you're using GitHub Actions (recommended), you only need to:
-
-1. **Scaleway Console:** Create project, get API keys
-2. **Scaleway Console:** Create state bucket `ciel-terraform-state`
-3. **GitHub Secrets:** Add 9 secrets (see "GitHub Actions Setup" section)
-4. **Push to main** or trigger workflow manually
-
-That's it! The CI/CD pipeline handles everything else.
+1. Create Scaleway project + API keys
+2. Create S3 bucket for Terraform state
+3. Generate secrets (PASETO keys, DB passwords, Redis password)
+4. Add 9 GitHub Secrets
+5. Push to main (or trigger workflow manually)
 
 ---
 
-## Pre-Deployment Checklist
+## Initial Setup (One-Time)
 
-Complete these steps **before** running `terraform init` for the first time.
+### Step 1: Scaleway Account & Project
 
-### 1. Scaleway Account Setup
+1. Create a [Scaleway account](https://console.scaleway.com) and enable billing
+2. Create a project (e.g., `ciel-production`)
+3. Note your **Project ID** (visible in console URL or Project Settings)
 
-**When:** Before any Terraform operations
-**Where:** [Scaleway Console](https://console.scaleway.com)
+### Step 2: API Credentials
 
-- [ ] Create a Scaleway account if you don't have one
-- [ ] Enable billing and add payment method
-- [ ] Note your Organization ID (visible in console URL or settings)
+1. Go to **IAM > API Keys > Generate New API Key**
+2. Scope it to your project
+3. Save the **Access Key** and **Secret Key** — these are your `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`
 
-### 2. Create Scaleway Project
+### Step 3: Terraform State Bucket
 
-**When:** Before Terraform operations
-**Where:** Scaleway Console > Project Settings
-
-```bash
-# Or via CLI if you have scw installed:
-scw account project create name=ciel-production
-```
-
-- [ ] Create project named `ciel-production` (or your preferred name)
-- [ ] Note the **Project ID** - you'll need this for `terraform.tfvars`
-
-### 3. Generate API Credentials
-
-**When:** Before Terraform operations
-**Where:** Scaleway Console > IAM > API Keys
-
-- [ ] Go to IAM > API Keys > Generate New API Key
-- [ ] Select your project scope
-- [ ] Save the **Access Key** and **Secret Key** securely
-- [ ] These are your `SCW_ACCESS_KEY` and `SCW_SECRET_KEY`
-
-> Note: The infrastructure now provisions a **scoped runtime IAM key** for instances and pulls secrets from Scaleway Secret Manager at boot. You no longer pass runtime secrets (DB/Redis/S3/SQS/PASETO/admin token) via cloud-init or `terraform.tfvars`.
-
-### 4. Create Terraform State Bucket
-
-**When:** Before `terraform init`
-**Where:** Scaleway Console > Object Storage OR via CLI
+Create before running `terraform init`:
 
 ```bash
 # Via Scaleway CLI
 scw object bucket create name=ciel-terraform-state region=fr-par
 
-# Or via AWS CLI with Scaleway endpoint
+# Or via AWS CLI
 aws s3 mb s3://ciel-terraform-state \
   --endpoint-url https://s3.fr-par.scw.cloud \
   --region fr-par
 ```
 
-- [ ] Create bucket named `ciel-terraform-state` in `fr-par` region
-- [ ] Ensure the bucket is private (default)
+### Step 4: Generate Secrets
 
-### 4.5 Runtime Secrets (NEW)
-
-Instances now **fetch runtime secrets from Scaleway Secret Manager at boot** using a scoped IAM key created by Terraform. You do not need to pass secrets into cloud-init or `terraform.tfvars` beyond the Terraform inputs below. Ensure instances have outbound access (public gateway) so the `scw` CLI can reach Secret Manager.
-
-### 5. Create Container Registry Namespace
-
-**When:** Before first Docker push
-**Where:** Scaleway Console > Container Registry
+Run these commands and save the output securely:
 
 ```bash
-# Via CLI
-scw registry namespace create name=ciel-social region=fr-par
-```
-
-- [ ] Create namespace named `ciel-social` in `fr-par` region
-- [ ] Note: Terraform will also create a namespace, but having one ready helps
-
-### 6. Register Your Domain (If using DNS module)
-
-**When:** Before enabling DNS in Terraform
-**Where:** Scaleway Console > Domains
-
-- [ ] If your domain is registered elsewhere, add it to Scaleway DNS
-- [ ] Update nameservers at your registrar to point to Scaleway:
-  - `ns0.dom.scw.cloud`
-  - `ns1.dom.scw.cloud`
-- [ ] Wait for DNS propagation (can take up to 48 hours)
-
----
-
-## Generate Required Secrets
-
-**When:** Before creating `terraform.tfvars`
-**Where:** Your local terminal
-
-### PASETO Keys (Authentication)
-
-```bash
-# Generate PASETO access key (32 bytes, base64 encoded)
-openssl rand -base64 32
-# Example output: K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols=
-
-# Generate PASETO refresh key (32 bytes, base64 encoded)
-openssl rand -base64 32
-# Example output: dGhpcyBpcyBhIHRlc3Qga2V5IGZvciB0ZXN0aW5nIQ==
-```
-
-- [ ] Generate and save PASETO access key
-- [ ] Generate and save PASETO refresh key
-
-### Database Passwords
-
-```bash
-# Generate secure database admin password
-openssl rand -base64 24
-# Example: Yx3Kp8mNqR2wT5vZ7aB9cD1eF4gH
-
-# Generate secure database user password
-openssl rand -base64 24
-```
-
-- [ ] Generate and save database admin password (min 16 characters)
-- [ ] Generate and save database user password (min 16 characters)
-
-### Redis Password
-
-```bash
-# Generate Redis password
-openssl rand -base64 24
-```
-
-- [ ] Generate and save Redis password
-
-### Admin Token (Optional)
-
-```bash
-# Generate admin token for initial setup
-openssl rand -hex 32
-```
-
-- [ ] Generate and save admin token (optional)
-
----
-
-## Create terraform.tfvars Files (OPTIONAL - Only for Local Development)
-
-> **Note:** If you're using GitHub Actions for deployment, you can skip this section entirely. All variables are passed via GitHub Secrets automatically.
-
-**When:** Only if you need to run Terraform manually from your local machine
-**Where:** Each environment directory
-
-### For Production (`terraform/environments/prod/terraform.tfvars`)
-
-```bash
-cd terraform/environments/prod
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your values
-```
-
-```hcl
-# terraform.tfvars
-project_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-
-db_admin_password = "your-secure-admin-password"
-db_user_password  = "your-secure-user-password"
-redis_password    = "your-secure-redis-password"
-
-paseto_access_key  = "your-base64-encoded-32-byte-key"
-paseto_refresh_key = "your-base64-encoded-32-byte-key"
-
-# Optional
-# admin_token = "your-admin-token"
-
-container_image_tag = "stable"
-alert_contact_emails = ["ops@example.com"]
-ssh_allowed_cidrs = []
-domain_name = "ciel-social.eu"
-enable_dns  = true
-```
-
-- [ ] Create `terraform.tfvars` for prod (optional)
-- [ ] Create `terraform.tfvars` for staging (optional)
-- [ ] Create `terraform.tfvars` for dev (optional)
-- [ ] **IMPORTANT:** `terraform.tfvars` is in `.gitignore` - never commit it
-
----
-
-## GitHub Actions Setup (REQUIRED - Primary Deployment Method)
-
-**When:** Before first CI/CD run
-**Where:** GitHub Repository Settings > Secrets and variables > Actions
-
-This is the **recommended way to deploy**. All Terraform variables are passed automatically from GitHub Secrets - no local `terraform.tfvars` files needed.
-
-### Required Secrets
-
-Go to: **Repository → Settings → Secrets and variables → Actions → New repository secret**
-
-| Secret Name | Description | How to Generate |
-|-------------|-------------|-----------------|
-| `SCW_ACCESS_KEY` | Scaleway API access key | From Scaleway Console > IAM > API Keys |
-| `SCW_SECRET_KEY` | Scaleway API secret key | From Scaleway Console > IAM > API Keys |
-| `SCW_PROJECT_ID` | Scaleway project ID | From Scaleway Console > Project Settings |
-| `DB_ADMIN_PASSWORD` | Database admin password | `openssl rand -base64 24` |
-| `DB_USER_PASSWORD` | Database user password | `openssl rand -base64 24` |
-| `REDIS_PASSWORD` | Redis password | `openssl rand -base64 24` |
-| `PASETO_ACCESS_KEY` | PASETO access key (32 bytes) | `openssl rand -base64 32` |
-| `PASETO_REFRESH_KEY` | PASETO refresh key (32 bytes) | `openssl rand -base64 32` |
-| `ADMIN_TOKEN` | Admin token (optional) | `openssl rand -hex 32` |
-
-### Quick Setup Commands
-
-Run these locally to generate all secrets, then copy-paste into GitHub:
-
-```bash
-echo "=== Copy these values to GitHub Secrets ==="
-echo ""
 echo "DB_ADMIN_PASSWORD:"
 openssl rand -base64 24
-echo ""
+
 echo "DB_USER_PASSWORD:"
 openssl rand -base64 24
-echo ""
+
 echo "REDIS_PASSWORD:"
 openssl rand -base64 24
-echo ""
+
 echo "PASETO_ACCESS_KEY:"
 openssl rand -base64 32
-echo ""
+
 echo "PASETO_REFRESH_KEY:"
 openssl rand -base64 32
-echo ""
-echo "ADMIN_TOKEN:"
+
+echo "ADMIN_TOKEN (optional):"
 openssl rand -hex 32
 ```
 
-### Optional Variables
+### Step 5: GitHub Secrets
 
-Go to: **Repository → Settings → Secrets and variables → Actions → Variables tab → New repository variable**
+Go to **Repository > Settings > Secrets and variables > Actions > New repository secret** and add:
 
-| Variable Name | Description | Example |
-|---------------|-------------|---------|
-| `SLACK_WEBHOOK_URL` | Slack webhook for notifications | `https://hooks.slack.com/...` |
+| Secret Name | Value |
+|-------------|-------|
+| `SCW_ACCESS_KEY` | From Step 2 |
+| `SCW_SECRET_KEY` | From Step 2 |
+| `SCW_PROJECT_ID` | From Step 1 |
+| `DB_ADMIN_PASSWORD` | From Step 4 |
+| `DB_USER_PASSWORD` | From Step 4 |
+| `REDIS_PASSWORD` | From Step 4 |
+| `PASETO_ACCESS_KEY` | From Step 4 |
+| `PASETO_REFRESH_KEY` | From Step 4 |
+| `ADMIN_TOKEN` | From Step 4 (optional) |
 
-### Checklist
+### Step 6: First Deploy
 
-- [ ] Add `SCW_ACCESS_KEY` secret
-- [ ] Add `SCW_SECRET_KEY` secret
-- [ ] Add `SCW_PROJECT_ID` secret
-- [ ] Add `DB_ADMIN_PASSWORD` secret
-- [ ] Add `DB_USER_PASSWORD` secret
-- [ ] Add `REDIS_PASSWORD` secret
-- [ ] Add `PASETO_ACCESS_KEY` secret
-- [ ] Add `PASETO_REFRESH_KEY` secret
-- [ ] Add `ADMIN_TOKEN` secret (optional)
-- [ ] Add `SLACK_WEBHOOK_URL` variable (optional)
+**Option A — GitHub Actions (recommended):**
 
----
+1. Go to **Actions > "Scaleway Terraform CI/CD" > Run workflow**
+2. Select environment (`prod` or add `dev` to the workflow matrix)
+3. Wait ~15-20 minutes for first run
+4. Check logs for errors
 
-## First Deployment
-
-### Option A: Deploy via GitHub Actions (Recommended)
-
-**When:** After setting up GitHub Secrets
-**Where:** GitHub
-
-1. **Push to main branch** or go to Actions → "Scaleway Terraform CI/CD" → "Run workflow"
-2. Select environment (start with `dev`)
-3. The workflow will:
-   - Build and push Docker image
-   - Run Terraform plan and apply
-   - Execute database migrations
-   - Send notifications (if configured)
-
-- [ ] Trigger workflow for dev environment
-- [ ] Wait for completion (~15-20 minutes first time)
-- [ ] Check workflow logs for any errors
-- [ ] Verify deployment (see "Verify Deployment" below)
-
-### Option B: Deploy Manually (Alternative)
-
-**When:** If you prefer local control or need to debug
-**Where:** Your local machine
+**Option B — Manual from local machine:**
 
 ```bash
-# Navigate to dev environment first
 cd terraform/environments/dev
 
-# Initialize Terraform with backend config
-terraform init \
-  -backend-config="access_key=YOUR_SCW_ACCESS_KEY" \
-  -backend-config="secret_key=YOUR_SCW_SECRET_KEY"
+# Set credentials for Terraform backend
+export AWS_ACCESS_KEY_ID="your-scw-access-key"
+export AWS_SECRET_ACCESS_KEY="your-scw-secret-key"
 
-# Validate configuration
+terraform init \
+  -backend-config="access_key=$AWS_ACCESS_KEY_ID" \
+  -backend-config="secret_key=$AWS_SECRET_ACCESS_KEY"
+
 terraform validate
 
-# Plan the deployment (pass variables via command line or TF_VAR_*)
+# Set all required variables
 export TF_VAR_project_id="your-project-id"
 export TF_VAR_db_admin_password="your-db-admin-pass"
 export TF_VAR_db_user_password="your-db-user-pass"
 export TF_VAR_redis_password="your-redis-pass"
 export TF_VAR_paseto_access_key="your-paseto-access"
 export TF_VAR_paseto_refresh_key="your-paseto-refresh"
-export TF_VAR_alert_contact_emails='["ops@example.com"]'
 
 terraform plan
 terraform apply
 ```
 
-### Run Database Migrations (if deploying manually)
-
-**When:** After Terraform apply, if not using CI/CD
-**Where:** Local machine with psql access
+Or create `terraform.tfvars` from the example:
 
 ```bash
-# Get database URL from Terraform output
+cp terraform.tfvars.example terraform.tfvars
+# Edit with your values — NEVER commit this file
+```
+
+### Step 7: Run Database Migrations
+
+If deploying manually (CI/CD does this automatically):
+
+```bash
 DATABASE_URL=$(terraform output -raw database_url)
 
-# Run migrations
 for f in ../../../migrations/*.sql; do
   echo "Running: $f"
   psql "$DATABASE_URL" -f "$f"
 done
 ```
 
-### Verify Deployment
+### Step 8: Verify Deployment
 
 ```bash
-# For dev (bastion IP since no load balancer)
+# Get the combined instance public IP
+API_IP=$(terraform output -raw api_instance_public_ips | jq -r '.[0]')
+
+# Test health endpoint
+curl http://$API_IP:8080/health
+
+# Or SSH to bastion and check Docker containers
 BASTION_IP=$(terraform output -raw bastion_ip)
 ssh root@$BASTION_IP
 docker ps
 docker logs ciel-api-1
-
-# For staging/prod (via load balancer)
-LB_IP=$(terraform output -raw load_balancer_ip)
-curl -v http://$LB_IP/health
-
-# Or if DNS is enabled
-curl -v https://api.ciel-social.eu/health
 ```
 
-- [ ] Verify containers are running
-- [ ] Check application logs
-- [ ] Test health endpoint
+Check that you see:
+- `ciel-api` container running (APP_MODE=api)
+- `redis` container running
+- Health endpoint returns 200
 
-### Deploy All Environments
-
-For staging and production, either:
-- **CI/CD:** The workflow deploys all environments automatically (dev → staging → prod)
-- **Manual:** Repeat the steps above in each environment directory
+Check the serverless worker:
+```bash
+terraform output serverless_worker_endpoint
+# Should show the container's domain name (or null if not yet deployed)
+```
 
 ---
 
-## Post-Deployment Steps
+## DNS Setup (Optional)
 
-### Configure CDN (Manual)
+If using the DNS module:
 
-**When:** After storage module is deployed
-**Where:** Scaleway Console > Edge Services
+1. Register your domain with Scaleway DNS or update nameservers at your registrar to:
+   - `ns0.dom.scw.cloud`
+   - `ns1.dom.scw.cloud`
+2. Wait for propagation (up to 48 hours)
+3. Set in your tfvars:
 
-1. Go to Edge Services in Scaleway Console
-2. Create a new pipeline for your media bucket
-3. Configure caching rules:
-   - Cache `processed/*` prefix
-   - Set appropriate TTL (e.g., 1 year for processed images)
-4. (Optional) Add custom domain for CDN
-5. Update `S3_PUBLIC_ENDPOINT` environment variable with CDN URL
-
-- [ ] Configure Edge Services CDN
-- [ ] Update CDN endpoint in Terraform or environment variables
-
-### Set Up Monitoring Alerts
-
-**When:** After observability module is deployed
-**Where:** Scaleway Console > Cockpit
-
-1. Access Grafana dashboard (URL in Terraform output)
-2. Configure alert rules:
-   - High CPU usage (>80% for 5 min)
-   - High memory usage (>80% for 5 min)
-   - Database connection errors
-   - Queue depth too high (>1000 messages)
-3. Set up notification channels (email, Slack)
-
-- [ ] Configure Grafana alerts
-- [ ] Set up notification channels
-
-### DNS Verification
-
-**When:** After DNS module is deployed
-**Where:** Your terminal and browser
-
-```bash
-# Verify DNS records
-dig api.ciel-social.eu
-dig media.ciel-social.eu
-
-# Test HTTPS
-curl -v https://api.ciel-social.eu/health
+```hcl
+enable_dns  = true
+domain_name = "ciel-social.eu"
 ```
 
-- [ ] Verify DNS records are resolving
-- [ ] Verify SSL certificates are valid
-- [ ] Test all endpoints
+4. Run `terraform apply`
+5. Verify: `dig dev-api.ciel-social.eu`
 
 ---
 
@@ -425,118 +187,104 @@ curl -v https://api.ciel-social.eu/health
 
 ### Deploying Updates
 
-For routine deployments, use GitHub Actions:
+**Via CI/CD (recommended):**
+Push to main or trigger the workflow manually. The pipeline builds a Docker image, runs Terraform, and applies migrations.
 
-1. Push to `main` branch, OR
-2. Manually trigger workflow in GitHub Actions
-
-The CI/CD pipeline will:
-- Build and push Docker image
-- Run Terraform plan and apply
-- Execute database migrations
-- Send notifications
-
-### Manual Deployment
-
-If you need to deploy manually:
+**Manually:**
 
 ```bash
-cd terraform/environments/prod
-
-# Refresh state and plan
-terraform plan -var="container_image_tag=NEW_TAG"
-
-# Apply changes
+cd terraform/environments/dev
 terraform apply -var="container_image_tag=NEW_TAG"
 ```
 
-### Scaling
+### Checking Logs
 
-To scale the infrastructure, update `terraform.tfvars`:
+```bash
+# SSH to combined instance via bastion
+ssh root@$(terraform output -raw bastion_ip)
+docker logs -f ciel-api-1
 
-```hcl
-# Increase API instances
-api_instance_count = 4
-api_instance_type  = "DEV1-M"
-
-# Add workers
-worker_instance_count = 3
-
-# Upgrade database
-db_node_type = "DB-PRO2-S"
+# Serverless worker logs are in Scaleway Cockpit
 ```
-
-Then run `terraform apply`.
-
----
-
-## Rollback Procedures
 
 ### Application Rollback
 
 ```bash
-# Deploy previous Docker image tag
+# Deploy the previous image tag
 terraform apply -var="container_image_tag=PREVIOUS_TAG"
-```
-
-### Infrastructure Rollback
-
-```bash
-# Use Terraform state to rollback
-terraform apply -target=module.compute
-
-# Or restore from state backup
-terraform state pull > backup.tfstate
-# Make changes
-terraform state push backup.tfstate
 ```
 
 ### Database Rollback
 
-Database migrations are forward-only. For rollback:
+Migrations are forward-only. Restore from Scaleway automatic backups or write reverse migration SQL.
 
-1. Restore from backup (Scaleway provides automatic backups)
-2. Or write a reverse migration SQL script
+---
+
+## Scaling
+
+See [SCALEWAY_TF_PLAN.md](./SCALEWAY_TF_PLAN.md) for the full scaling scenarios with exact variable changes. Quick reference:
+
+| Scenario | Key Change | Cost Delta |
+|----------|-----------|------------|
+| **1. Bigger instance** | `combined_instance_type = "DEV1-L"` | +€19/mo |
+| **2. Split API + Redis** | `enable_combined_mode = false`, `cache.enabled = true` | +€6/mo |
+| **3. Load balancer + multi-API** | `enable_load_balancer = true`, `api_instance_count = 2` | +€12/mo + instances |
+| **4. Managed Redis** | `use_managed_redis = true` | +€35/mo |
+| **5. Upgrade DB** | `db_node_type = "DB-PRO2-XXS"` | +€63/mo |
+| **6. More worker capacity** | `serverless_worker_max_scale = 10` | ~€0 |
+| **7. CDN** | `enable_cdn = true` | ~€1-15/mo |
+| **8. Production-ready** | All of the above | ~€200-250/mo |
+| **9. Kubernetes** | Kapsule migration | Varies |
+
+To apply any scenario, update the variables in your tfvars or CI/CD secrets and run `terraform apply`.
+
+---
+
+## CDN Setup (Manual)
+
+After enabling `enable_cdn = true` in the storage module:
+
+1. Go to **Scaleway Console > Edge Services**
+2. Create a pipeline for your media bucket
+3. Cache `processed/*` prefix with long TTL (1 year for processed images)
+4. Optionally add a custom domain
+5. Update `S3_PUBLIC_ENDPOINT` with the CDN URL
+
+---
+
+## Monitoring
+
+After the observability module deploys:
+
+1. Access Grafana via Scaleway Cockpit
+2. Key metrics to watch:
+   - API: request latency P95, error rate
+   - Database: connection count, query latency
+   - Worker: SQS queue depth, processing time
+   - Instance: CPU, memory, disk usage
+
+Set `enable_alerts = true` in the observability module for production.
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
-
-1. **Terraform init fails with S3 error**
-   - Verify state bucket exists
-   - Check access key and secret key
-
-2. **Container won't start**
-   - Check registry authentication
-   - Verify image tag exists
-   - Check cloud-init logs: `/var/log/cloud-init-output.log`
-
-3. **Database connection fails**
-   - Verify private network configuration
-   - Check security groups
-   - Ensure instance is in same private network as database
-
-4. **DNS not resolving**
-   - Wait for propagation (up to 48 hours)
-   - Verify nameservers at registrar
-   - Check Scaleway DNS zone configuration
-
-### Getting Help
-
-- Scaleway Documentation: https://www.scaleway.com/en/docs/
-- Terraform Scaleway Provider: https://registry.terraform.io/providers/scaleway/scaleway/latest/docs
-- GitHub Issues: https://github.com/your-repo/issues
+| Problem | Fix |
+|---------|-----|
+| `terraform init` fails with S3 error | Verify state bucket exists and credentials are correct |
+| Container won't start | Check cloud-init logs: `/var/log/cloud-init-output.log` on the instance |
+| DB connection fails | Verify instance is on the private network, check security groups |
+| Serverless worker not triggering | Check SQS trigger in Scaleway Console, verify queue name matches |
+| DNS not resolving | Wait for propagation, verify nameservers at registrar |
+| Rate limit errors in tests | The IP rate limit is 10 login attempts/hr — use direct token issuance for tests |
 
 ---
 
 ## Security Reminders
 
-1. **Never commit `terraform.tfvars` to version control**
-2. **Rotate secrets regularly** (every 90 days recommended)
-3. **Use separate credentials per environment**
-4. **Enable MFA on your Scaleway account**
-5. **Review IAM policies periodically**
-6. **Keep Terraform and provider versions updated**
-7. **Admin-only endpoints require `X-Admin-Token` header** (token stored in Secret Manager)
+- Never commit `terraform.tfvars` to version control
+- Rotate secrets every 90 days
+- Use separate credentials per environment
+- Enable MFA on your Scaleway account
+- Instances fetch runtime secrets from Scaleway Secret Manager at boot (no plaintext secrets in cloud-init)
+- Admin endpoints require `X-Admin-Token` header

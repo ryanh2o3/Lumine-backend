@@ -1,5 +1,5 @@
 # Dev Environment Configuration
-# This configuration uses minimal resources for development and testing
+# Single instance (API + Redis) + Serverless Container for media processing
 
 terraform {
   required_version = ">= 1.5.0"
@@ -28,6 +28,9 @@ locals {
   app_name    = "ciel"
   environment = "dev"
   tags        = ["environment:dev", "managed-by:terraform"]
+
+  # Construct DATABASE_URL for the serverless worker container
+  serverless_database_url = "postgres://${module.database.database_user}:${var.db_user_password}@${module.database.private_endpoint}:${module.database.endpoint_port}/${module.database.database_name}?sslmode=require"
 }
 
 # Networking Module
@@ -45,6 +48,7 @@ module "networking" {
   enable_load_balancer  = false  # No LB needed for dev
   enable_bastion        = true   # Allow SSH access for debugging
   enable_public_gateway = true
+  enable_public_https   = true   # Caddy handles SSL directly on the instance
   private_network_cidr  = "10.0.1.0/24"
   ssh_allowed_cidrs     = var.ssh_allowed_cidrs
 }
@@ -74,9 +78,11 @@ module "database" {
   private_network_id = module.networking.private_network_id
 }
 
-# Cache Module
+# Cache Module — disabled in combined mode (Redis runs on the compute instance)
 module "cache" {
   source = "../../modules/cache"
+
+  enabled            = false  # Redis is embedded in the combined instance
 
   project_id         = var.project_id
   region             = var.region
@@ -85,12 +91,10 @@ module "cache" {
   app_name           = local.app_name
   tags               = local.tags
 
-  # Dev-specific settings - self-managed Redis
-  use_managed_redis  = false
-  redis_instance_type = "DEV1-S"
-  redis_password     = var.redis_password
+  use_managed_redis   = false
+  redis_password      = var.redis_password
 
-  # Network dependencies
+  # Network dependencies (not used when disabled, but required by module)
   private_network_id = module.networking.private_network_id
   security_group_id  = module.networking.redis_security_group_id
 }
@@ -117,7 +121,6 @@ module "messaging" {
 
   project_id                = var.project_id
   region                    = var.region
-  zone                      = var.zone
   environment               = local.environment
   app_name                  = local.app_name
   tags                      = local.tags
@@ -152,7 +155,7 @@ module "secrets" {
   sqs_secret_key     = module.messaging.sqs_secret_key
 }
 
-# Compute Module
+# Compute Module — combined mode + serverless worker
 module "compute" {
   source = "../../modules/compute"
 
@@ -163,13 +166,27 @@ module "compute" {
   app_name                 = local.app_name
   tags                     = local.tags
 
-  # Dev-specific settings - minimal instances
-  api_instance_count       = 1
-  api_instance_type        = "DEV1-S"
-  worker_instance_count    = 1
-  worker_instance_type     = "DEV1-S"
+  # Combined mode: API + Redis on one DEV1-M instance
+  enable_combined_mode     = true
+  combined_instance_type   = "DEV1-M"
+  embedded_redis_maxmemory_mb = 512
+  api_domain               = "dev-api.${var.domain_name}"
 
-  # Use dev container image
+  # No separate API/worker instances
+  api_instance_count       = 0
+  worker_instance_count    = 0
+
+  # Serverless Container for media processing
+  enable_serverless_worker    = true
+  serverless_worker_cpu       = 1000  # 1 vCPU
+  serverless_worker_memory    = 512   # 512 MB
+  serverless_worker_min_scale = 0     # Scale to zero
+  serverless_worker_max_scale = 3
+  serverless_database_url     = local.serverless_database_url
+  serverless_s3_access_key    = module.storage.s3_access_key
+  serverless_s3_secret_key    = module.storage.s3_secret_key
+
+  # Container image
   container_image_tag      = var.container_image_tag
 
   # Network dependencies
@@ -177,16 +194,13 @@ module "compute" {
   api_security_group_id    = module.networking.api_security_group_id
   worker_security_group_id = module.networking.worker_security_group_id
   load_balancer_backend_id = null  # No LB in dev
-  
+
   # Application configuration from other modules
   db_host                  = module.database.private_endpoint
   db_port                  = module.database.endpoint_port
   db_name                  = module.database.database_name
   db_user                  = module.database.database_user
   db_password_secret_id    = module.secrets.db_password_secret_id
-  redis_host               = module.cache.redis_host
-  redis_port               = module.cache.redis_port
-  redis_use_tls            = module.cache.redis_use_tls
   redis_password_secret_id = module.secrets.redis_password_secret_id
   s3_endpoint              = module.storage.s3_endpoint
   s3_region                = var.region
@@ -220,7 +234,7 @@ module "observability" {
   enable_alerts = false  # No alerts for dev
 }
 
-# DNS Module (disabled for dev by default)
+# DNS Module — points dev-api.ciel-social.eu at the combined instance
 module "dns" {
   source = "../../modules/dns"
 
@@ -229,7 +243,7 @@ module "dns" {
   domain_name      = var.domain_name
   api_subdomain    = "dev-api"
   cdn_subdomain    = "dev-media"
-  load_balancer_ip = module.networking.bastion_public_ip  # Use bastion IP for dev since no LB
+  load_balancer_ip = module.compute.api_instance_public_ips[0]  # Combined instance public IP
   cdn_endpoint     = module.storage.cdn_endpoint
 
   # Dev-specific settings
@@ -237,5 +251,5 @@ module "dns" {
   enable_cdn_dns  = false
   enable_www_dns  = false
   enable_root_dns = false
-  enable_ssl      = false
+  enable_ssl      = false  # Caddy handles SSL on the instance
 }

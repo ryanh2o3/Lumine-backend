@@ -1,0 +1,218 @@
+#cloud-config
+# Combined cloud-init: runs API + Redis on a single instance
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - openssl
+  - python3
+  - unattended-upgrades
+
+write_files:
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  - path: /opt/ciel/fetch-secrets.sh
+    permissions: '0700'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      export SCW_ACCESS_KEY="${scw_access_key}"
+      export SCW_SECRET_KEY="${scw_secret_key}"
+      export SCW_DEFAULT_REGION="${scw_region}"
+      export SCW_DEFAULT_ZONE="${scw_zone}"
+
+      fetch_secret() {
+        scw secret version access "secret-id=$1" --output json | jq -r .data
+      }
+
+      urlencode() {
+        python3 - <<'PY' "$1"
+import sys
+import urllib.parse
+print(urllib.parse.quote(sys.argv[1]))
+PY
+      }
+
+      db_password="$(fetch_secret "${db_password_secret_id}")"
+      redis_password="$(fetch_secret "${redis_password_secret_id}")"
+      s3_access_key="$(fetch_secret "${s3_access_key_secret_id}")"
+      s3_secret_key="$(fetch_secret "${s3_secret_key_secret_id}")"
+      sqs_access_key="$(fetch_secret "${sqs_access_key_secret_id}")"
+      sqs_secret_key="$(fetch_secret "${sqs_secret_key_secret_id}")"
+      paseto_access_key="$(fetch_secret "${paseto_access_key_secret_id}")"
+      paseto_refresh_key="$(fetch_secret "${paseto_refresh_key_secret_id}")"
+
+      admin_token=""
+      if [ -n "${admin_token_secret_id}" ]; then
+        admin_token="$(fetch_secret "${admin_token_secret_id}")"
+      fi
+
+      db_password_enc="$(urlencode "$db_password")"
+      redis_password_enc="$(urlencode "$redis_password")"
+
+      database_url="postgres://${db_user}:$${db_password_enc}@${db_host}:${db_port}/${db_name}?sslmode=require"
+      # Redis is local on this instance via Docker network
+      redis_url="redis://:$${redis_password_enc}@redis:6379"
+
+      cat > /opt/ciel/.env <<EOF
+      APP_MODE=api
+      HTTP_ADDR=${http_addr}
+      DATABASE_URL=$${database_url}
+      REDIS_URL=$${redis_url}
+      S3_ENDPOINT=${s3_endpoint}
+      S3_REGION=${s3_region}
+      S3_BUCKET=${s3_bucket}
+      S3_PUBLIC_ENDPOINT=${s3_public_endpoint}
+      AWS_ACCESS_KEY_ID=$${s3_access_key}
+      AWS_SECRET_ACCESS_KEY=$${s3_secret_key}
+      QUEUE_ENDPOINT=${queue_endpoint}
+      QUEUE_REGION=${queue_region}
+      QUEUE_NAME=${queue_name}
+      SQS_ACCESS_KEY=$${sqs_access_key}
+      SQS_SECRET_KEY=$${sqs_secret_key}
+      PASETO_ACCESS_KEY=$${paseto_access_key}
+      PASETO_REFRESH_KEY=$${paseto_refresh_key}
+      ADMIN_TOKEN=$${admin_token}
+      RUST_LOG=${rust_log}
+      EOF
+
+      # Write Redis password for the Redis container
+      echo "$redis_password" > /opt/ciel/redis_password.txt
+      chmod 600 /opt/ciel/.env /opt/ciel/redis_password.txt
+
+  - path: /opt/ciel/redis.conf
+    content: |
+      bind 0.0.0.0
+      port 6379
+      protected-mode yes
+      # Password is injected via --requirepass flag in docker-compose
+      maxmemory ${redis_maxmemory_mb}mb
+      maxmemory-policy allkeys-lru
+      save 900 1
+      save 300 10
+      save 60 10000
+      appendonly yes
+      appendfsync everysec
+      loglevel notice
+      tcp-backlog 511
+      timeout 0
+      tcp-keepalive 300
+
+  - path: /opt/ciel/docker-compose.yml
+    content: |
+      services:
+        redis:
+          image: redis:7-alpine
+          restart: unless-stopped
+          command: >
+            sh -c "redis-server /etc/redis/redis.conf
+            --requirepass $$(cat /run/secrets/redis_password)"
+          volumes:
+            - redis-data:/data
+            - /opt/ciel/redis.conf:/etc/redis/redis.conf:ro
+            - /opt/ciel/redis_password.txt:/run/secrets/redis_password:ro
+          healthcheck:
+            test: ["CMD", "redis-cli", "-a", "$$(cat /run/secrets/redis_password)", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+          logging:
+            driver: json-file
+            options:
+              max-size: "5m"
+              max-file: "2"
+        api:
+          image: ${registry_endpoint}/${app_name}:${image_tag}
+          restart: unless-stopped
+          env_file:
+            - .env
+          depends_on:
+            redis:
+              condition: service_healthy
+          logging:
+            driver: json-file
+            options:
+              max-size: "10m"
+              max-file: "3"
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+        caddy:
+          image: caddy:2-alpine
+          restart: unless-stopped
+          ports:
+            - "80:80"
+            - "443:443"
+          volumes:
+            - /opt/ciel/Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy-data:/data
+            - caddy-config:/config
+          depends_on:
+            api:
+              condition: service_healthy
+          logging:
+            driver: json-file
+            options:
+              max-size: "5m"
+              max-file: "2"
+      volumes:
+        redis-data:
+        caddy-data:
+        caddy-config:
+
+  - path: /opt/ciel/Caddyfile
+    content: |
+      ${api_domain} {
+        reverse_proxy api:8080
+      }
+
+runcmd:
+  # Install Docker
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  - chmod a+r /etc/apt/keyrings/docker.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+  # Install Scaleway CLI
+  - curl -fsSL https://github.com/scaleway/scaleway-cli/releases/latest/download/scaleway-cli-linux-amd64 -o /usr/local/bin/scw
+  - chmod +x /usr/local/bin/scw
+
+  # Configure unattended upgrades
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+  - systemctl enable unattended-upgrades
+
+  # Fetch secrets and write environment file
+  - /opt/ciel/fetch-secrets.sh
+
+  # Login to Scaleway Container Registry using scoped IAM key
+  - echo "${scw_secret_key}" | docker login ${registry_endpoint} -u ${scw_access_key} --password-stdin
+
+  # Pull and start the application (API + Redis + Caddy)
+  - cd /opt/ciel && docker compose pull
+  - cd /opt/ciel && docker compose up -d
+
+  # Enable Docker to start on boot
+  - systemctl enable docker

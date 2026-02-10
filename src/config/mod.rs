@@ -40,6 +40,9 @@ impl AppConfig {
             .map_err(|err| anyhow!("invalid HTTP_ADDR: {}", err))?;
         let app_mode = env_or("APP_MODE", "api");
 
+        // Serverless worker only needs DB + S3 — skip Redis/Queue/PASETO
+        let is_serverless = app_mode == "serverless-worker";
+
         let s3_region = env_or("S3_REGION", "fr-par");
         let queue_region = std::env::var("QUEUE_REGION").unwrap_or_else(|_| s3_region.clone());
 
@@ -47,23 +50,23 @@ impl AppConfig {
             http_addr,
             app_mode,
             database_url: env_or_err("DATABASE_URL")?,
-            redis_url: env_or("REDIS_URL", "redis://127.0.0.1/"),
+            redis_url: if is_serverless { String::new() } else { env_or("REDIS_URL", "redis://127.0.0.1/") },
             s3_endpoint: env_or_err("S3_ENDPOINT")?,
             s3_public_endpoint: std::env::var("S3_PUBLIC_ENDPOINT").ok(),
             s3_region,
             s3_bucket: env_or_err("S3_BUCKET")?,
-            queue_endpoint: env_or_err("QUEUE_ENDPOINT")?,
+            queue_endpoint: if is_serverless { String::new() } else { env_or_err("QUEUE_ENDPOINT")? },
             queue_region,
-            queue_name: env_or_err("QUEUE_NAME")?,
-            db_max_connections: env_or_parse("DB_MAX_CONNECTIONS", "25")?,
+            queue_name: if is_serverless { String::new() } else { env_or_err("QUEUE_NAME")? },
+            db_max_connections: env_or_parse("DB_MAX_CONNECTIONS", if is_serverless { "5" } else { "25" })?,
             db_connect_timeout_seconds: env_or_parse("DB_CONNECT_TIMEOUT_SECONDS", "5")?,
             db_idle_timeout_seconds: env_or_parse("DB_IDLE_TIMEOUT_SECONDS", "300")?,
             db_max_lifetime_seconds: env_or_parse("DB_MAX_LIFETIME_SECONDS", "1800")?,
             admin_token: std::env::var("ADMIN_TOKEN").ok(),
             upload_url_ttl_seconds: env_or_parse("UPLOAD_URL_TTL_SECONDS", "900")?,
             upload_max_bytes: env_or_parse("UPLOAD_MAX_BYTES", "10485760")?,
-            paseto_access_key: env_key_32("PASETO_ACCESS_KEY")?,
-            paseto_refresh_key: env_key_32("PASETO_REFRESH_KEY")?,
+            paseto_access_key: if is_serverless { [0u8; 32] } else { env_key_32("PASETO_ACCESS_KEY")? },
+            paseto_refresh_key: if is_serverless { [0u8; 32] } else { env_key_32("PASETO_REFRESH_KEY")? },
             access_ttl_minutes: env_or_parse("ACCESS_TTL_MINUTES", "15")?,
             refresh_ttl_days: env_or_parse("REFRESH_TTL_DAYS", "30")?,
             ip_signup_rate_limit: env_or_parse("IP_SIGNUP_RATE_LIMIT", "3")?,

@@ -86,6 +86,12 @@ variable "public_gateway_type" {
   default     = "VPC-GW-S"
 }
 
+variable "enable_public_https" {
+  description = "Open ports 80/443 on API security group for direct Caddy/Let's Encrypt SSL (no LB)"
+  type        = bool
+  default     = false
+}
+
 variable "ssl_certificate_ids" {
   description = "SSL certificate IDs for HTTPS termination"
   type        = list(string)

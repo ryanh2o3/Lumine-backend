@@ -17,6 +17,21 @@ async fn main() -> anyhow::Result<()> {
 
     let config = AppConfig::from_env()?;
 
+    // Serverless worker only needs DB + S3, skip Redis/Queue init
+    if config.app_mode == "serverless-worker" {
+        tracing::info!("starting serverless worker mode");
+        let db = Db::connect(&config).await?;
+        let storage = ObjectStorage::new(&config).await?;
+
+        let app = ciel::jobs::media_processor::router(db, storage);
+        let listener = tokio::net::TcpListener::bind(&config.http_addr).await?;
+        tracing::info!("serverless worker listening on {}", config.http_addr);
+        axum::serve(listener, app.into_make_service())
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
+        return Ok(());
+    }
+
     let db = Db::connect(&config).await?;
     let cache = RedisCache::connect(&config.redis_url).await?;
     let storage = ObjectStorage::new(&config).await?;

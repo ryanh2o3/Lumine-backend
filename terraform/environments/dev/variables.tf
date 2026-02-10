@@ -83,5 +83,5 @@ variable "domain_name" {
 variable "enable_dns" {
   description = "Enable DNS module for dev environment"
   type        = bool
-  default     = false
+  default     = true
 }
